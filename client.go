@@ -46,6 +46,7 @@ type Client struct {
 	hasLocalPolicy bool
 	evaluator      *PolicyEvaluator
 	audit          *LocalAuditLogger
+	dlpScanner     *DLPScanner
 }
 
 // Option configures a Client at construction time.
@@ -150,6 +151,19 @@ func New(opts ...Option) (*Client, error) {
 			return nil, err
 		}
 		c.evaluator = NewPolicyEvaluator(rules)
+
+		// Initialize DLP scanner with built-in patterns. If the policy
+		// contains a dlp_rules section, load those as custom rules on top.
+		if policyMap, ok := localSource.(map[string]any); ok {
+			customDLP := LoadDLPRulesFromPolicy(policyMap)
+			if len(customDLP) > 0 {
+				c.dlpScanner = NewDLPScannerWithRules(customDLP)
+			} else {
+				c.dlpScanner = NewDLPScanner()
+			}
+		} else {
+			c.dlpScanner = NewDLPScanner()
+		}
 	}
 
 	if !hasAPIKey {
@@ -207,6 +221,24 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 		}()
 		decision = c.evaluator.Evaluate(tool, method, opts.Context)
 	}()
+
+	// DLP scanning: if the policy allowed the call, scan tool args for
+	// sensitive data. If any DLP rule with action="block" matches, override
+	// the decision to deny. Detect-only matches are logged but do not block.
+	if decision.Allowed() && c.dlpScanner != nil && len(opts.Args) > 0 {
+		argsText := ExtractTextFromArgs(opts.Args)
+		if argsText != "" {
+			dlpMatches := c.dlpScanner.Scan(argsText)
+			if HasBlockingMatch(dlpMatches) {
+				decision = PolicyDecision{
+					Effect:         "deny",
+					PolicyID:       decision.PolicyID,
+					Reason:         "DLP blocking match found in tool arguments",
+					EvaluatedRules: decision.EvaluatedRules,
+				}
+			}
+		}
+	}
 
 	c.auditDecision(tool, method, opts.Args, decision)
 
