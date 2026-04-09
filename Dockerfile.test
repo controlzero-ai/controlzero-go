@@ -1,0 +1,29 @@
+# Test image for the controlzero Go SDK.
+FROM golang:1.21-alpine
+
+WORKDIR /app
+
+# Build deps
+RUN apk add --no-cache git
+
+COPY go.mod ./
+COPY *.go ./
+COPY templates ./templates
+COPY cmd ./cmd
+COPY examples ./examples
+COPY README.md LICENSE ./
+
+# Download deps and tidy
+RUN go mod tidy
+RUN go mod download
+
+# Build the CLI binary as a smoke test
+RUN go build -o /usr/local/bin/controlzero ./cmd/controlzero
+RUN controlzero --version
+
+# Build the example as a smoke test
+RUN go build -o /tmp/hello ./examples/hello_world.go && /tmp/hello
+
+# Run the test suite by default. We skip -race because alpine builds default
+# to CGO_ENABLED=0; enabling cgo would require gcc + libc which doubles image size.
+CMD ["go", "test", "-v", "./..."]

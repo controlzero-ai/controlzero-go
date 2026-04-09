@@ -1,0 +1,85 @@
+# controlzero policy: Claude Code template
+# Schema version 1
+#
+# This template installs as a Claude Code PreToolUse hook. It is
+# ALLOW-BY-DEFAULT and lists explicit deny rules. The goal: visible audit
+# from day one, with a few opinionated denies you can extend.
+#
+# Where this file lives:
+#   ~/.controlzero/policy.yaml
+#
+# Per-project override: drop a `controlzero.yaml` in any project's root.
+# That file wins over this global one.
+#
+# To edit:
+#   Open ~/.controlzero/policy.yaml in your editor and add deny rules.
+#
+# To test a decision without running Claude Code:
+#   echo '{"tool_name":"WebFetch","tool_input":{"url":"https://example.com"}}' \
+#     | controlzero hook-check
+#
+# To see what got blocked (and what was allowed):
+#   tail -f ~/.controlzero/audit.log
+#
+# What v0.1 can match:
+#   - Exact tool names ("Bash", "Edit", "WebFetch", "controlzero__check")
+#   - Tool name globs ("delete_*", "write_*", "*__write")
+#   - Tool:method patterns ("github:delete_repo", "fs:*")
+#
+# What v0.1 CANNOT match (yet, coming in v0.2):
+#   - Arguments inside a tool call (e.g. "Bash command containing rm -rf")
+#   - File paths inside Edit/Write
+#   - URL contents inside WebFetch
+#
+# Until v0.2 lands, the most useful deny rules are at the TOOL level. For
+# argument-level enforcement today, use the SDK directly inside your own
+# code paths instead of the hook.
+
+version: '1'
+
+rules:
+  # ============================================================
+  # AUDIT EVERYTHING (the value prop on day one)
+  # ============================================================
+  # Even with no denies, every Claude Code tool call is logged to
+  # ~/.controlzero/audit.log. Tail it and you have a complete record of
+  # every action your agent took.
+
+  # ============================================================
+  # DENY: dangerous MCP tools (examples; uncomment to enable)
+  # ============================================================
+  #
+  # Many projects add MCP servers that expose destructive tools. The hook
+  # can block them by exact name or glob. Uncomment and adapt.
+  #
+  # - id: deny-database-drop
+  #   deny: 'mcp__database__drop_table'
+  #   reason: 'Dropping tables requires manual approval'
+  #
+  # - id: deny-prod-secrets
+  #   deny: 'mcp__vault__get_*'
+  #   reason: 'Production secrets are gated through manual review'
+  #
+  # - id: deny-deploy-tools
+  #   deny: '*deploy*'
+  #   reason: 'Deploys go through CI, not the agent'
+
+  # ============================================================
+  # DENY: anything you do not want the agent to call
+  # ============================================================
+  #
+  # Add tool names you want to block. The default Claude Code toolset
+  # includes: Bash, Edit, Write, Read, Glob, Grep, WebFetch, WebSearch,
+  # Task, TodoWrite, NotebookEdit. To inspect what tools an agent has
+  # available, look at your Claude Code session logs.
+
+  # ============================================================
+  # ALLOW: everything else (the safe default)
+  # ============================================================
+  #
+  # This catch-all keeps Claude Code working out of the box. Remove or
+  # tighten as you add explicit deny rules above.
+
+  - id: allow-everything-else
+    allow: '*'
+    reason: 'Default allow. Tighten by adding deny rules above this one.'

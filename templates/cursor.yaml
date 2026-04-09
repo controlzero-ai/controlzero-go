@@ -1,0 +1,86 @@
+# controlzero policy: Cursor template
+# Schema version 1
+#
+# Cursor's agent mode calls tools directly (Terminal, Edit, Search, etc.)
+# and also calls any MCP servers you have configured. This template
+# applies to both. It is ALLOW-BY-DEFAULT for read-heavy tools and
+# explicit-deny for destructive ones.
+#
+# To use this policy globally across every Cursor project:
+#
+#   controlzero init --template cursor --out ~/.controlzero/policy.yaml
+#
+# Per-project override: drop a controlzero.yaml in the project root. The
+# SDK's policy loader checks the project root first, then falls back to
+# the global policy.
+#
+# Because Cursor agents work through file edits, the tools most worth
+# gating are Edit / Write / Run. v0.1 can match tool names; argument-
+# level matching (e.g. "Edit targeting /etc/passwd") lands in v0.2.
+# For now, use the deny rules at the tool level and augment with your
+# IDE's built-in path restrictions.
+
+version: '1'
+
+rules:
+  # ============================================================
+  # ALLOW: safe read-only tools
+  # ============================================================
+  - id: allow-read-file
+    allow: 'read_file'
+    reason: 'Reading files is always allowed'
+
+  - id: allow-list-dir
+    allow: 'list_dir'
+    reason: 'Directory listing is safe'
+
+  - id: allow-grep
+    allow: 'grep_search'
+    reason: 'Grep is read-only'
+
+  - id: allow-semantic-search
+    allow: 'codebase_search'
+    reason: 'Codebase search is read-only'
+
+  - id: allow-web-search
+    allow: 'web_search'
+    reason: 'Web search is read-only'
+
+  # ============================================================
+  # ALLOW: scoped writes (non-destructive)
+  # ============================================================
+  - id: allow-edit-file
+    allow: 'edit_file'
+    reason: 'File edits are allowed (Cursor already confirms)'
+
+  - id: allow-write-file
+    allow: 'write_file'
+    reason: 'File writes are allowed (Cursor already confirms)'
+
+  # ============================================================
+  # DENY: destructive shell commands
+  # ============================================================
+  # Cursor's Terminal tool runs shell commands. v0.1 can't match on the
+  # command string itself, but you can name your tool something like
+  # 'run_terminal_cmd_danger' and deny that pattern.
+  - id: deny-danger-shell
+    deny: 'run_terminal_cmd_danger'
+    reason: 'Danger-tagged shell commands are blocked'
+
+  # ============================================================
+  # DENY: specific MCP tools
+  # ============================================================
+  # If you have MCP servers configured in Cursor, they show up with
+  # a prefix. Uncomment and adapt:
+  #
+  # - id: deny-db-drop
+  #   deny: 'mcp__postgres__drop_*'
+  #   reason: 'Dropping DB objects requires manual approval'
+  #
+  # - id: deny-prod-secrets
+  #   deny: 'mcp__vault__*'
+  #   reason: 'Vault access is read-through-dashboard only'
+
+  # ============================================================
+  # Default: fail-closed
+  # ============================================================

@@ -1,0 +1,83 @@
+# controlzero policy: CrewAI template
+# Schema version 1
+#
+# CrewAI agents delegate tasks between themselves and call Tools. This
+# template gates tool calls and includes a few patterns specific to
+# multi-agent workflows:
+#
+#   1. "Manager" agents can call more tools than "worker" agents.
+#      v0.1 can't enforce per-agent policies directly, but you can run
+#      a different policy file per Crew by passing policy_file= to the
+#      Client used inside each agent's tools.
+#   2. Delegation tools (crew.kickoff, agent.execute_task) are allowed
+#      by default so your topology doesn't break.
+#   3. Write-heavy tools are explicitly denied to prevent runaway loops.
+#
+# Wire it into code:
+#
+#   from controlzero import Client
+#   from crewai.tools import tool
+#
+#   cz = Client(policy_file="./controlzero.yaml")
+#
+#   @tool("File Writer")
+#   def write_file(path: str, content: str) -> str:
+#       cz.guard("write_file", {"path": path})
+#       # ... write logic ...
+#
+# Tip: run `controlzero tail` in a second terminal while your crew runs.
+# You'll see every tool call scroll by in real time, even the ones that
+# were allowed. This is the fastest way to learn what your crew is
+# actually doing.
+
+version: '1'
+
+rules:
+  # ============================================================
+  # ALLOW: CrewAI orchestration tools
+  # ============================================================
+  - id: allow-delegation
+    allow: 'delegate_*'
+    reason: 'Delegation is core to multi-agent workflows'
+
+  - id: allow-ask-coworker
+    allow: 'ask_*_coworker'
+    reason: 'Inter-agent communication is allowed'
+
+  # ============================================================
+  # ALLOW: read-only research tools
+  # ============================================================
+  - id: allow-research
+    allow: 'research_*'
+    reason: 'Research tools (web search, paper lookup) are safe'
+
+  - id: allow-analyze
+    allow: 'analyze_*'
+    reason: 'Analysis tools are read-only'
+
+  - id: allow-summarize
+    allow: 'summarize_*'
+    reason: 'Summarization is safe'
+
+  # ============================================================
+  # DENY: destructive writes
+  # ============================================================
+  - id: deny-publish
+    deny: 'publish_*'
+    reason: 'Publishing requires manual approval'
+
+  - id: deny-send-email
+    deny: 'send_email*'
+    reason: 'Outbound email requires manual approval'
+
+  - id: deny-post-social
+    deny: 'post_to_*'
+    reason: 'Social media posting requires manual approval'
+
+  - id: deny-execute-code
+    deny: 'execute_code'
+    reason: 'Arbitrary code execution is blocked'
+
+  # ============================================================
+  # Default: fail-closed
+  # ============================================================

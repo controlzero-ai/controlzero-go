@@ -1,0 +1,79 @@
+# controlzero policy file: MCP server template
+# Schema version 1
+#
+# This template is for MCP (Model Context Protocol) servers. It assumes you
+# expose tools to AI assistants like Claude Desktop, Claude Code, Cursor, etc.
+#
+# Goals:
+#   - Allow read/list/search tools by default
+#   - Require explicit allow for write/delete tools
+#   - Block dangerous operations entirely
+#
+# Run:
+#   controlzero validate controlzero.yaml
+#   controlzero test fs:delete --policy controlzero.yaml
+
+version: '1'
+
+rules:
+  # ---------- ALLOW: read-only operations across all MCP tools ----------
+  - id: allow-mcp-reads
+    allow: '*:read'
+    reason: 'All MCP read methods are allowed'
+
+  - id: allow-mcp-lists
+    allow: '*:list'
+    reason: 'All MCP list methods are allowed'
+
+  - id: allow-mcp-search
+    allow: '*:search'
+    reason: 'All MCP search methods are allowed'
+
+  - id: allow-mcp-get
+    allow: '*:get'
+    reason: 'All MCP get methods are allowed'
+
+  # ---------- ALLOW: scoped writes for known-good tools ----------
+  - id: allow-notes-write
+    allow: 'notes:create'
+    reason: 'Creating notes is fine'
+
+  - id: allow-tasks-update
+    allow: 'tasks:update'
+    reason: 'Updating task state is fine'
+
+  # ---------- DENY: dangerous filesystem operations ----------
+  - id: deny-fs-delete
+    deny: 'fs:delete'
+    reason: 'Filesystem deletes require human approval'
+
+  - id: deny-fs-write
+    deny: 'fs:write'
+    reason: 'Filesystem writes require explicit allow per path'
+
+  # ---------- DENY: code execution ----------
+  - id: deny-shell
+    deny: 'shell:*'
+    reason: 'Shell commands are blocked'
+
+  - id: deny-exec
+    deny: 'exec:*'
+    reason: 'Process execution is blocked'
+
+  # ---------- DENY: network egress ----------
+  - id: deny-http-post
+    deny: 'http:post'
+    reason: 'Outbound POST blocked, use a specific tool'
+
+  - id: deny-http-put
+    deny: 'http:put'
+    reason: 'Outbound PUT blocked, use a specific tool'
+
+  - id: deny-http-delete
+    deny: 'http:delete'
+    reason: 'Outbound DELETE blocked'
+
+  # ---------- DENY: catch-all ----------
+  - id: catch-all-deny
+    deny: '*'
+    reason: 'MCP tool not on the allow list. Add a rule above to permit it.'

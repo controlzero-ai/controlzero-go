@@ -1,0 +1,57 @@
+# controlzero policy file
+# Schema version 1
+#
+# This is the Hello World template. Edit it to fit your app.
+#
+# A policy is a list of rules. Each rule has either `deny` or `allow`,
+# pointing at a tool name (or pattern). Rules are evaluated top to bottom;
+# the first match wins. If no rule matches, the call is DENIED (fail-closed).
+#
+# Run:
+#   controlzero validate controlzero.yaml
+#   controlzero test delete_file --policy controlzero.yaml
+#
+# Use it in code:
+#   from controlzero import Client
+#   cz = Client(policy_file="./controlzero.yaml")
+#   cz.guard("delete_file", {"path": "/tmp/foo"})
+
+version: '1'
+
+rules:
+  # Hello World: block any tool whose name starts with "delete_"
+  - id: hello-world-deny-deletes
+    deny: 'delete_*'
+    reason: 'Hello World: deletes are blocked by default'
+
+  # Allow read-only tools
+  - id: allow-reads
+    allow: 'read_*'
+    reason: 'Reads are always permitted'
+
+  # Allow listing tools (e.g. list_files, list_users)
+  - id: allow-lists
+    allow: 'list_*'
+    reason: 'Listing operations are safe'
+
+  # Allow specific known-good tools by exact name
+  - id: allow-search
+    allow: 'search'
+    reason: 'Search is allowed'
+
+  # Pattern with tool:method syntax. The "github" tool is allowed for any method.
+  - id: allow-github-all
+    allow: 'github:*'
+    reason: 'GitHub integration is fully trusted'
+
+  # Deny one specific dangerous method on the github tool
+  - id: deny-github-delete-repo
+    deny: 'github:delete_repo'
+    reason: 'Deleting repos is irreversible'
+
+  # Catch-all: deny everything else. This is the fail-closed safety net.
+  # Without this rule, unmatched calls would still be denied (fail-closed default),
+  # but with it you can attach an explicit reason for clearer audit logs.
+  - id: catch-all-deny
+    deny: '*'
+    reason: 'Default deny: this tool is not on the allow list'

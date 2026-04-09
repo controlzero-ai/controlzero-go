@@ -1,0 +1,63 @@
+# controlzero policy file: RAG / agent template
+# Schema version 1
+#
+# This template is for retrieval-augmented generation (RAG) and agent apps.
+# Goals:
+#   - Allow the agent to read from your knowledge base and search the web
+#   - Block exfiltration: writes to external systems, file deletes, code exec
+#   - Allow well-defined tool calls; deny anything novel
+#
+# Run:
+#   controlzero validate controlzero.yaml
+#   controlzero test exfiltrate_data --policy controlzero.yaml
+
+version: '1'
+
+rules:
+  # ---------- ALLOW: knowledge base reads ----------
+  - id: allow-vector-search
+    allow: 'vector_search'
+    reason: 'Vector search over our own knowledge base is safe'
+
+  - id: allow-document-fetch
+    allow: 'fetch_document'
+    reason: 'Fetching documents from our KB is safe'
+
+  - id: allow-web-search
+    allow: 'web_search'
+    reason: 'Read-only web search is allowed'
+
+  # ---------- ALLOW: model and tool inspection ----------
+  - id: allow-list-tools
+    allow: 'list_*'
+    reason: 'Listing/inspecting tools is read-only'
+
+  # ---------- DENY: exfiltration vectors ----------
+  - id: deny-http-post
+    deny: 'http_post'
+    reason: 'Outbound POST is a data exfiltration vector'
+
+  - id: deny-send-email
+    deny: 'send_email'
+    reason: 'Email sends require human approval'
+
+  - id: deny-shell-exec
+    deny: 'shell_exec'
+    reason: 'Shell execution is high risk'
+
+  - id: deny-eval
+    deny: 'eval'
+    reason: 'Code eval is forbidden'
+
+  - id: deny-file-writes
+    deny: 'write_*'
+    reason: 'File writes from agents are blocked'
+
+  - id: deny-file-deletes
+    deny: 'delete_*'
+    reason: 'File deletes are blocked'
+
+  # ---------- DENY: catch-all ----------
+  - id: catch-all-deny
+    deny: '*'
+    reason: 'Default deny: tool not on the allow list for this RAG app'
