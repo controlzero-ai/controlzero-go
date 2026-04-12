@@ -32,6 +32,9 @@ import (
 	"time"
 )
 
+// Sentinel errors.
+var ErrBundleSignatureInvalid = errors.New("policy bundle signature verification failed")
+
 // On-disk layout (must match Python + Node SDKs).
 const (
 	stateFileName     = "enrollment.json"
@@ -42,16 +45,17 @@ const (
 // EnrollmentState is everything the SDK needs to authenticate signed
 // requests after a successful enroll round-trip.
 type EnrollmentState struct {
-	MachineID         string            `json:"machine_id"`
-	OrgID             string            `json:"org_id"`
-	APIURL            string            `json:"api_url"`
-	Hostname          string            `json:"hostname"`
-	FingerprintHint   string            `json:"fingerprint_hint"`
-	MachinePubkeyPEM  string            `json:"machine_pubkey_pem"`
-	EnrolledAt        string            `json:"enrolled_at"`
-	PolicyVersion     int               `json:"policy_version"`
-	TamperBehavior    string            `json:"tamper_behavior"`
-	PluginVersions    map[string]string `json:"plugin_versions"`
+	MachineID            string            `json:"machine_id"`
+	OrgID                string            `json:"org_id"`
+	APIURL               string            `json:"api_url"`
+	Hostname             string            `json:"hostname"`
+	FingerprintHint      string            `json:"fingerprint_hint"`
+	MachinePubkeyPEM     string            `json:"machine_pubkey_pem"`
+	EnrolledAt           string            `json:"enrolled_at"`
+	PolicyVersion        int               `json:"policy_version"`
+	TamperBehavior       string            `json:"tamper_behavior"`
+	OrgSigningPubkeyPEM  string            `json:"org_signing_pubkey_pem"`
+	PluginVersions       map[string]string `json:"plugin_versions"`
 }
 
 // EnrollOptions is the input to Enroll.
@@ -333,27 +337,29 @@ func Enroll(ctx context.Context, opts EnrollOptions) (*EnrollmentState, error) {
 	}
 
 	var parsed struct {
-		MachineID     string `json:"machine_id"`
-		OrgID         string `json:"org_id"`
-		EnrolledAt     string `json:"enrolled_at"`
-		PolicyVersion  int    `json:"policy_version"`
-		TamperBehavior string `json:"tamper_behavior"`
+		MachineID          string `json:"machine_id"`
+		OrgID              string `json:"org_id"`
+		EnrolledAt         string `json:"enrolled_at"`
+		PolicyVersion      int    `json:"policy_version"`
+		TamperBehavior     string `json:"tamper_behavior"`
+		OrgSigningPubkey   string `json:"org_signing_pubkey"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return nil, &EnrollmentError{Msg: fmt.Sprintf("parse enroll response: %v", err)}
 	}
 
 	state := &EnrollmentState{
-		MachineID:        parsed.MachineID,
-		OrgID:            parsed.OrgID,
-		APIURL:           apiURL,
-		Hostname:         hostname,
-		FingerprintHint:  fp,
-		MachinePubkeyPEM: pubPEM,
-		EnrolledAt:       parsed.EnrolledAt,
-		PolicyVersion:    parsed.PolicyVersion,
-		TamperBehavior:   parsed.TamperBehavior,
-		PluginVersions:   pluginVersions,
+		MachineID:           parsed.MachineID,
+		OrgID:               parsed.OrgID,
+		APIURL:              apiURL,
+		Hostname:            hostname,
+		FingerprintHint:     fp,
+		MachinePubkeyPEM:    pubPEM,
+		EnrolledAt:          parsed.EnrolledAt,
+		PolicyVersion:       parsed.PolicyVersion,
+		TamperBehavior:      parsed.TamperBehavior,
+		OrgSigningPubkeyPEM: parsed.OrgSigningPubkey,
+		PluginVersions:      pluginVersions,
 	}
 	if _, err := SavePrivateKey(priv, stateDir); err != nil {
 		return nil, err
@@ -469,12 +475,30 @@ func PullPolicy(ctx context.Context, state *EnrollmentState, stateDir string) (*
 	if resp.StatusCode == http.StatusNotModified {
 		return nil, nil
 	}
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
 		return nil, &EnrollmentError{Msg: fmt.Sprintf("pull_policy failed: HTTP %d: %s", resp.StatusCode, extractError(respBody, string(respBody)))}
 	}
+
+	// Verify bundle signature if org pubkey is available
+	sigHeader := resp.Header.Get("X-Policy-Signature")
+	if state.OrgSigningPubkeyPEM != "" && sigHeader != "" {
+		block, _ := pem.Decode([]byte(state.OrgSigningPubkeyPEM))
+		if block != nil {
+			pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+			if err == nil {
+				if edPub, ok := pub.(ed25519.PublicKey); ok {
+					sigBytes, err := base64.StdEncoding.DecodeString(sigHeader)
+					if err != nil || !ed25519.Verify(edPub, respBody, sigBytes) {
+						return nil, ErrBundleSignatureInvalid
+					}
+				}
+			}
+		}
+	}
+
 	var bundle PolicyBundle
-	if err := json.NewDecoder(resp.Body).Decode(&bundle); err != nil {
+	if err := json.Unmarshal(respBody, &bundle); err != nil {
 		return nil, &EnrollmentError{Msg: fmt.Sprintf("decode policy bundle: %v", err)}
 	}
 	if bundle.PolicyVersion != state.PolicyVersion {
