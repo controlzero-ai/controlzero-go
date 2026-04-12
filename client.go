@@ -204,6 +204,21 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 		method = "*"
 	}
 
+	// Quarantine check: if this machine is quarantined due to tamper detection,
+	// deny ALL tool calls until recovery.
+	if IsQuarantined(DefaultStateDir()) {
+		decision := PolicyDecision{
+			Effect: "deny",
+			Reason: "Machine quarantined: policy tampering detected. " +
+				"Run 'controlzero enroll' or 'controlzero policy-pull' to recover.",
+		}
+		c.auditDecision(tool, method, opts.Args, decision)
+		if opts.RaiseOnDeny {
+			return decision, &PolicyDeniedError{Decision: decision}
+		}
+		return decision, nil
+	}
+
 	if c.evaluator == nil {
 		return c.noopDecision(), nil
 	}

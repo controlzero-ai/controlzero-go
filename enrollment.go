@@ -50,6 +50,7 @@ type EnrollmentState struct {
 	MachinePubkeyPEM  string            `json:"machine_pubkey_pem"`
 	EnrolledAt        string            `json:"enrolled_at"`
 	PolicyVersion     int               `json:"policy_version"`
+	TamperBehavior    string            `json:"tamper_behavior"`
 	PluginVersions    map[string]string `json:"plugin_versions"`
 }
 
@@ -334,8 +335,9 @@ func Enroll(ctx context.Context, opts EnrollOptions) (*EnrollmentState, error) {
 	var parsed struct {
 		MachineID     string `json:"machine_id"`
 		OrgID         string `json:"org_id"`
-		EnrolledAt    string `json:"enrolled_at"`
-		PolicyVersion int    `json:"policy_version"`
+		EnrolledAt     string `json:"enrolled_at"`
+		PolicyVersion  int    `json:"policy_version"`
+		TamperBehavior string `json:"tamper_behavior"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return nil, &EnrollmentError{Msg: fmt.Sprintf("parse enroll response: %v", err)}
@@ -350,6 +352,7 @@ func Enroll(ctx context.Context, opts EnrollOptions) (*EnrollmentState, error) {
 		MachinePubkeyPEM: pubPEM,
 		EnrolledAt:       parsed.EnrolledAt,
 		PolicyVersion:    parsed.PolicyVersion,
+		TamperBehavior:   parsed.TamperBehavior,
 		PluginVersions:   pluginVersions,
 	}
 	if _, err := SavePrivateKey(priv, stateDir); err != nil {

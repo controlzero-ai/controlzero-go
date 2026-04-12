@@ -509,3 +509,190 @@ func mustOpen(t *testing.T, path string) io.Reader {
 	t.Cleanup(func() { _ = f.Close() })
 	return f
 }
+
+// --- WS1: org signing pubkey + bundle signature verification -----------
+
+func TestEnroll_PersistsOrgSigningPubkey(t *testing.T) {
+	dir := t.TempDir()
+
+	// Generate an org signing keypair on the "server"
+	orgPub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, _ := x509.MarshalPKIXPublicKey(orgPub)
+	orgPubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+
+	srv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"machine_id":        "m1",
+			"org_id":            "o1",
+			"enrolled_at":       "2026-04-12T00:00:00Z",
+			"policy_version":    0,
+			"org_signing_pubkey": orgPubPEM,
+		})
+	})
+	defer srv.Close()
+
+	state, err := Enroll(context.Background(), EnrollOptions{
+		APIURL: srv.URL, Token: "tok", StateDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.OrgSigningPubkeyPEM != orgPubPEM {
+		t.Errorf("org pubkey not stored: %q", state.OrgSigningPubkeyPEM)
+	}
+
+	reloaded, _ := LoadState(dir)
+	if reloaded.OrgSigningPubkeyPEM != orgPubPEM {
+		t.Errorf("org pubkey not persisted: %q", reloaded.OrgSigningPubkeyPEM)
+	}
+}
+
+func TestEnroll_OrgSigningPubkeyDefaultsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	srv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"machine_id":"m1","org_id":"o1","enrolled_at":"x","policy_version":0}`))
+	})
+	defer srv.Close()
+
+	state, err := Enroll(context.Background(), EnrollOptions{
+		APIURL: srv.URL, Token: "tok", StateDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.OrgSigningPubkeyPEM != "" {
+		t.Errorf("expected empty org pubkey, got %q", state.OrgSigningPubkeyPEM)
+	}
+}
+
+func TestPullPolicy_VerifiesValidSignature(t *testing.T) {
+	dir := t.TempDir()
+	orgPub, orgPriv, _ := ed25519.GenerateKey(nil)
+	der, _ := x509.MarshalPKIXPublicKey(orgPub)
+	orgPubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+
+	// Enroll with org pubkey
+	enrollSrv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"machine_id":        "m1",
+			"org_id":            "o1",
+			"enrolled_at":       "x",
+			"policy_version":    0,
+			"org_signing_pubkey": orgPubPEM,
+		})
+	})
+	defer enrollSrv.Close()
+
+	state, _ := Enroll(context.Background(), EnrollOptions{
+		APIURL: enrollSrv.URL, Token: "t", StateDir: dir,
+	})
+
+	// Signed policy pull
+	bundleJSON := []byte(`{"policy_version":1,"rules":[]}`)
+	sig := ed25519.Sign(orgPriv, bundleJSON)
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+
+	pullSrv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Policy-Signature", sigB64)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bundleJSON)
+	})
+	defer pullSrv.Close()
+
+	state.APIURL = pullSrv.URL
+	bundle, err := PullPolicy(context.Background(), state, dir)
+	if err != nil {
+		t.Fatalf("pull_policy failed: %v", err)
+	}
+	if bundle == nil {
+		t.Fatal("bundle nil")
+	}
+	if bundle.PolicyVersion != 1 {
+		t.Errorf("policy_version: %d", bundle.PolicyVersion)
+	}
+}
+
+func TestPullPolicy_RejectsInvalidSignature(t *testing.T) {
+	dir := t.TempDir()
+	orgPub, _, _ := ed25519.GenerateKey(nil)
+	der, _ := x509.MarshalPKIXPublicKey(orgPub)
+	orgPubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+
+	// Enroll with org pubkey
+	enrollSrv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"machine_id":        "m1",
+			"org_id":            "o1",
+			"enrolled_at":       "x",
+			"policy_version":    0,
+			"org_signing_pubkey": orgPubPEM,
+		})
+	})
+	defer enrollSrv.Close()
+
+	state, _ := Enroll(context.Background(), EnrollOptions{
+		APIURL: enrollSrv.URL, Token: "t", StateDir: dir,
+	})
+
+	// Sign with a WRONG key
+	_, wrongPriv, _ := ed25519.GenerateKey(nil)
+	bundleJSON := []byte(`{"policy_version":1,"rules":[]}`)
+	badSig := ed25519.Sign(wrongPriv, bundleJSON)
+	badSigB64 := base64.StdEncoding.EncodeToString(badSig)
+
+	pullSrv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Policy-Signature", badSigB64)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bundleJSON)
+	})
+	defer pullSrv.Close()
+
+	state.APIURL = pullSrv.URL
+	_, err := PullPolicy(context.Background(), state, dir)
+	if err == nil {
+		t.Fatal("expected error on bad signature")
+	}
+	if !stderrors.Is(err, ErrBundleSignatureInvalid) {
+		t.Errorf("expected ErrBundleSignatureInvalid, got: %v", err)
+	}
+}
+
+func TestPullPolicy_BackwardCompat_NoKeyNoSig(t *testing.T) {
+	dir := t.TempDir()
+	// Enroll WITHOUT org pubkey
+	enrollSrv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"machine_id":"m1","org_id":"o1","enrolled_at":"x","policy_version":0}`))
+	})
+	defer enrollSrv.Close()
+
+	state, _ := Enroll(context.Background(), EnrollOptions{
+		APIURL: enrollSrv.URL, Token: "t", StateDir: dir,
+	})
+
+	pullSrv := newServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"policy_version":1,"rules":[]}`))
+	})
+	defer pullSrv.Close()
+
+	state.APIURL = pullSrv.URL
+	bundle, err := PullPolicy(context.Background(), state, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle == nil {
+		t.Fatal("bundle nil")
+	}
+	if bundle.PolicyVersion != 1 {
+		t.Errorf("policy_version: %d", bundle.PolicyVersion)
+	}
+}
