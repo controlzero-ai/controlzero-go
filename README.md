@@ -44,8 +44,13 @@ No API key. No signup. Run it.
 ## Install
 
 ```bash
-go get controlzero.ai/sdk/go
+go get controlzero.ai/sdk/go@v1.4.0
 ```
+
+Pin to a specific version for reproducible builds. The version source of
+truth is [`VERSION`](./VERSION); bumping that file triggers an
+auto-tagged release on the public mirror repo (handled by the monorepo
+sync workflow).
 
 ## Quickstart with the CLI
 
