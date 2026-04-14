@@ -143,10 +143,22 @@ cz, err := controlzero.New(
 
 ## Hosted mode
 
-Hosted mode (dashboard policies + remote audit) is **not yet implemented** in
-this slim package. To use hosted mode today, use the legacy SDK at
-`sdks/go/control-zero`. For local-first use cases, this `controlzero` package
-is what you want.
+Hosted mode ships dashboard-managed signed policy bundles and remote audit.
+Pass your project API key; `New` hits `/v1/sdk/bootstrap`, pulls the signed
+`.czpolicy` bundle, verifies the signature, decrypts locally, and enforces
+every call against the dashboard policy. Audit streams to the remote trail.
+
+```go
+client, err := controlzero.New(controlzero.WithAPIKey("cz_live_..."))
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+```
+
+Use `NewWithContext(ctx, ...)` to pass your own context. Bootstrap keys
+and the bundle are cached under `~/.controlzero/cache/` so restarts work
+offline.
 
 ## Framework examples
 
