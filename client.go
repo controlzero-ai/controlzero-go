@@ -1,6 +1,7 @@
 package controlzero
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,6 +48,7 @@ type Client struct {
 	evaluator      *PolicyEvaluator
 	audit          *LocalAuditLogger
 	dlpScanner     *DLPScanner
+	bearerSink     *BearerAuditSink
 }
 
 // Option configures a Client at construction time.
@@ -102,7 +104,17 @@ func WithLogRotation(maxSizeMB, maxBackups, maxAgeDays int, compress bool) Optio
 
 // New constructs a Client with the given options. Returns an error rather
 // than panicking on invalid configuration.
+//
+// This is the synchronous entry point. Hosted mode (WithAPIKey with no
+// local policy) performs a network fetch of the signed policy bundle
+// during construction. Use NewWithContext to pass your own context.
 func New(opts ...Option) (*Client, error) {
+	return NewWithContext(context.Background(), opts...)
+}
+
+// NewWithContext is New with a caller-supplied context. The context
+// governs the hosted-mode bootstrap + bundle-pull HTTP calls.
+func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
 		logPath:    "./controlzero.log",
 		logFormat:  "json",
@@ -124,13 +136,18 @@ func New(opts ...Option) (*Client, error) {
 
 	localSource, hasLocal := resolveLocalSource(cfg)
 
-	// SECURITY: Hosted mode is not implemented in this slim package.
-	// If a user sets CONTROLZERO_API_KEY without a local policy, they expect
-	// remote dashboard policies to enforce their tool calls. Silently
-	// returning "allow" for everything would be a security incident.
-	// Refuse to construct, loud and immediate.
+	// Hosted mode: API key set, no local policy. Pull the signed bundle
+	// from the dashboard, verify + decrypt, and use the result as the
+	// local policy. Fail closed on any error.
+	isPreloadedHosted := false
 	if hasAPIKey && !hasLocal {
-		return nil, ErrHostedModeNotImplemented
+		policyMap, _, err := loadHostedPolicy(ctx, apiKey, GetAPIURL())
+		if err != nil {
+			return nil, err
+		}
+		localSource = policyMap
+		hasLocal = true
+		isPreloadedHosted = true
 	}
 
 	c := &Client{
@@ -139,7 +156,9 @@ func New(opts ...Option) (*Client, error) {
 		hasLocalPolicy: hasLocal,
 	}
 
-	if hasAPIKey && hasLocal {
+	// Hybrid detection: API key + explicitly-supplied local policy. Skip
+	// when the "local" policy came from a hosted pull.
+	if hasAPIKey && hasLocal && !isPreloadedHosted {
 		if err := c.handleHybrid(cfg.strictHosted); err != nil {
 			return nil, err
 		}
@@ -180,6 +199,14 @@ func New(opts ...Option) (*Client, error) {
 		fmt.Fprintln(os.Stderr,
 			"controlzero: log options are ignored when an API key is set "+
 				"(audit is managed server-side).")
+	}
+
+	// Hosted + hybrid modes: ship audit to the backend via Bearer API key.
+	if hasAPIKey {
+		c.bearerSink = NewBearerAuditSink(BearerAuditOptions{
+			APIURL: GetAPIURL(),
+			APIKey: apiKey,
+		})
 	}
 
 	return c, nil
@@ -266,6 +293,10 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 
 // Close flushes and closes the local audit log sink.
 func (c *Client) Close() error {
+	if c.bearerSink != nil {
+		_ = c.bearerSink.Close()
+		c.bearerSink = nil
+	}
 	if c.audit != nil {
 		err := c.audit.Close()
 		c.audit = nil
@@ -332,16 +363,13 @@ func (c *Client) noopDecision() PolicyDecision {
 }
 
 func (c *Client) auditDecision(tool, method string, args map[string]any, decision PolicyDecision) {
-	if c.audit == nil {
-		return
-	}
 	keys := make([]string, 0, len(args))
 	for k := range args {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	c.audit.Log(map[string]any{
+	entry := map[string]any{
 		"decision":  decision.Effect,
 		"tool":      tool,
 		"method":    method,
@@ -349,5 +377,18 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		"reason":    decision.Reason,
 		"args_keys": keys,
 		"mode":      "local",
-	})
+	}
+
+	if c.audit != nil {
+		c.audit.Log(entry)
+	}
+
+	if c.bearerSink != nil {
+		hosted := make(map[string]any, len(entry))
+		for k, v := range entry {
+			hosted[k] = v
+		}
+		hosted["mode"] = "hosted"
+		c.bearerSink.Log(hosted)
+	}
 }

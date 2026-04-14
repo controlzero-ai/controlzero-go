@@ -159,26 +159,45 @@ func TestToolMethodPattern(t *testing.T) {
 	}
 }
 
-// ---- Hosted mode security ----
+// ---- Hosted mode fail-closed on unreachable backend ----
+//
+// As of v1.4, hosted mode is implemented. When WithAPIKey is set but no
+// local policy is available, New() pulls the signed policy bundle from
+// the dashboard. If the backend is unreachable AND there is no cache,
+// construction fails closed with HostedBootstrapError (or
+// HostedAuthError for 401/403). These tests confirm fail-closed
+// behavior; end-to-end success is covered by hosted_policy_e2e_test.go.
 
-func TestHostedModeRefusesToConstruct(t *testing.T) {
+func TestHostedModeFailsClosedOnUnreachableBackend(t *testing.T) {
+	// Point at a port nothing listens on to guarantee refused connection.
+	t.Setenv("CONTROLZERO_API_URL", "http://127.0.0.1:1")
+	// Isolate cache dir so stale caches don't mask the failure.
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CONTROLZERO_API_KEY", "cz_test_fakekey")
+
 	_, err := controlzero.New()
 	if err == nil {
-		t.Fatal("expected HostedModeNotImplemented error")
+		t.Fatal("expected hosted-mode construction to fail without backend")
 	}
-	if !errors.Is(err, controlzero.ErrHostedModeNotImplemented) {
-		t.Fatalf("expected ErrHostedModeNotImplemented, got %v", err)
+	var berr *controlzero.HostedBootstrapError
+	if !errors.As(err, &berr) {
+		t.Fatalf("expected *HostedBootstrapError, got %T: %v", err, err)
 	}
-	if !strings.Contains(err.Error(), "hosted mode") {
-		t.Fatalf("expected error mentioning hosted mode, got %v", err)
+	if !strings.Contains(err.Error(), "bootstrap") {
+		t.Fatalf("expected error mentioning bootstrap, got %v", err)
 	}
 }
 
-func TestHostedModeRefusesWithExplicitKey(t *testing.T) {
+func TestHostedModeFailsClosedWithExplicitKey(t *testing.T) {
+	t.Setenv("CONTROLZERO_API_URL", "http://127.0.0.1:1")
+	t.Setenv("HOME", t.TempDir())
 	_, err := controlzero.New(controlzero.WithAPIKey("cz_live_fakekey"))
-	if !errors.Is(err, controlzero.ErrHostedModeNotImplemented) {
-		t.Fatalf("expected ErrHostedModeNotImplemented, got %v", err)
+	if err == nil {
+		t.Fatal("expected hosted-mode construction to fail without backend")
+	}
+	var berr *controlzero.HostedBootstrapError
+	if !errors.As(err, &berr) {
+		t.Fatalf("expected *HostedBootstrapError, got %T: %v", err, err)
 	}
 }
 

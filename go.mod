@@ -1,8 +1,9 @@
 module controlzero.ai/sdk/go
 
-go 1.21
+go 1.22
 
 require (
+	github.com/klauspost/compress v1.17.11
 	github.com/spf13/cobra v1.8.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1

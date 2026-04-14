@@ -91,3 +91,30 @@ var ErrHostedModeNotImplemented = errors.New(
 var ErrHybridMode = errors.New(
 	"controlzero: manual policy override detected (strict_hosted=true)",
 )
+
+// HostedAuthError is returned when the project API key is rejected by
+// the backend (401/403). Permanent: retrying with the same key will not
+// help.
+type HostedAuthError struct{ Msg string }
+
+func (e *HostedAuthError) Error() string { return "controlzero: " + e.Msg }
+
+// HostedBootstrapError is returned when hosted mode cannot initialize
+// (backend unreachable, malformed response, etc.) AND no cached bundle
+// is available. The SDK fails closed: without a valid policy, New()
+// refuses to construct.
+type HostedBootstrapError struct{ Msg string }
+
+func (e *HostedBootstrapError) Error() string { return "controlzero: " + e.Msg }
+
+// BundleFormatError wraps a bundle wire-format problem surfaced to the
+// user. Distinct from bundle signature/crypto failures.
+type BundleFormatError struct{ Msg string }
+
+func (e *BundleFormatError) Error() string { return "controlzero: " + e.Msg }
+
+// BundleSignatureError wraps a signature/AEAD failure surfaced to the
+// user. Fails closed -- the bundle is untrusted.
+type BundleSignatureError struct{ Msg string }
+
+func (e *BundleSignatureError) Error() string { return "controlzero: " + e.Msg }
