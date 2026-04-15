@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -49,7 +50,13 @@ type Client struct {
 	audit          *LocalAuditLogger
 	dlpScanner     *DLPScanner
 	bearerSink     *BearerAuditSink
+	agentName      string
 }
+
+// AgentName returns the agent identity attached to audit events for this
+// client. Resolution order: WithAgentName option > CZ_AGENT_NAME env var
+// > "default-agent".
+func (c *Client) AgentName() string { return c.agentName }
 
 // Option configures a Client at construction time.
 type Option func(*clientConfig)
@@ -66,6 +73,13 @@ type clientConfig struct {
 	maxAgeDays   int
 	compress     bool
 	logSet       bool // tracks if user explicitly set any log option
+	agentName    string
+}
+
+// WithAgentName sets the agent identity attached to audit events. Falls
+// back to CZ_AGENT_NAME env var, then to "default-agent".
+func WithAgentName(name string) Option {
+	return func(c *clientConfig) { c.agentName = name }
 }
 
 func WithAPIKey(key string) Option {
@@ -134,6 +148,22 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 	}
 	hasAPIKey := apiKey != ""
 
+	agentName := cfg.agentName
+	if agentName == "" {
+		agentName = os.Getenv("CZ_AGENT_NAME")
+	}
+	if agentName == "" {
+		agentName = "default-agent"
+	}
+
+	// CZ_DEBUG=1 / true / yes / on raises the controlzero logger level.
+	// Translated to a process-wide env so other packages in this SDK can
+	// pick it up cheaply via os.Getenv.
+	switch strings.ToLower(os.Getenv("CZ_DEBUG")) {
+	case "1", "true", "yes", "on":
+		_ = os.Setenv("CONTROLZERO_DEBUG", "1")
+	}
+
 	localSource, hasLocal := resolveLocalSource(cfg)
 
 	// Hosted mode: API key set, no local policy. Pull the signed bundle
@@ -154,6 +184,7 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 		apiKey:         apiKey,
 		hasAPIKey:      hasAPIKey,
 		hasLocalPolicy: hasLocal,
+		agentName:      agentName,
 	}
 
 	// Hybrid detection: API key + explicitly-supplied local policy. Skip

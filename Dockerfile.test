@@ -1,5 +1,5 @@
 # Test image for the controlzero Go SDK.
-FROM golang:1.21-alpine
+FROM golang:1.22-alpine
 
 WORKDIR /app
 
@@ -11,6 +11,7 @@ COPY *.go ./
 COPY templates ./templates
 COPY cmd ./cmd
 COPY examples ./examples
+COPY internal ./internal
 COPY README.md LICENSE ./
 
 # Download deps and tidy
@@ -23,6 +24,11 @@ RUN controlzero --version
 
 # Build the example as a smoke test
 RUN go build -o /tmp/hello ./examples/hello_world.go && /tmp/hello
+
+# Compile the docs snippets (issue #72). Catches docs drift: if a code
+# block in docs-site/docs/sdk/go.md uses a function that no longer exists,
+# the build fails here and the docs change must follow the SDK change.
+RUN go build ./examples/docs/...
 
 # Run the test suite by default. We skip -race because alpine builds default
 # to CGO_ENABLED=0; enabling cgo would require gcc + libc which doubles image size.
