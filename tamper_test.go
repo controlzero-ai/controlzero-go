@@ -123,6 +123,78 @@ func TestGuardDeniesWhenQuarantined(t *testing.T) {
 	if decision.Reason == "" {
 		t.Error("expected non-empty reason")
 	}
+	if decision.ReasonCode != ReasonCodeMachineQuarantined {
+		t.Errorf("ReasonCode = %q, want %q", decision.ReasonCode, ReasonCodeMachineQuarantined)
+	}
+}
+
+func TestApplyTamperBehaviorQuarantineEntersState(t *testing.T) {
+	dir := t.TempDir()
+	entered := ApplyTamperBehavior(dir, PolicySettings{DefaultOnTamper: "quarantine"}, "test", "policy_hmac")
+	if !entered {
+		t.Error("ApplyTamperBehavior returned false, want true for quarantine")
+	}
+	if !IsQuarantined(dir) {
+		t.Error("state dir not quarantined after ApplyTamperBehavior")
+	}
+}
+
+func TestApplyTamperBehaviorDenyAllEntersState(t *testing.T) {
+	dir := t.TempDir()
+	entered := ApplyTamperBehavior(dir, PolicySettings{DefaultOnTamper: "deny-all"}, "test", "policy_hmac")
+	if !entered {
+		t.Error("ApplyTamperBehavior returned false for deny-all, want true")
+	}
+	if !IsQuarantined(dir) {
+		t.Error("state dir not quarantined after deny-all")
+	}
+}
+
+func TestApplyTamperBehaviorDenyDoesNotQuarantine(t *testing.T) {
+	dir := t.TempDir()
+	entered := ApplyTamperBehavior(dir, PolicySettings{DefaultOnTamper: "deny"}, "test", "policy_hmac")
+	if entered {
+		t.Error("deny must NOT enter quarantine (per-call deny only)")
+	}
+	if IsQuarantined(dir) {
+		t.Error("state dir quarantined for deny, want not")
+	}
+}
+
+func TestApplyTamperBehaviorWarnIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	entered := ApplyTamperBehavior(dir, PolicySettings{DefaultOnTamper: "warn"}, "test", "policy_hmac")
+	if entered {
+		t.Error("warn must NOT enter quarantine")
+	}
+	if IsQuarantined(dir) {
+		t.Error("state dir quarantined for warn, want not")
+	}
+}
+
+func TestApplyTamperBehaviorUnknownIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	entered := ApplyTamperBehavior(dir, PolicySettings{DefaultOnTamper: "panic"}, "test", "policy_hmac")
+	if entered {
+		t.Error("unknown behavior must NOT enter quarantine (forward-compat warn)")
+	}
+}
+
+func TestApplyTamperBehaviorUsesLegacyAlias(t *testing.T) {
+	dir := t.TempDir()
+	// Only the legacy TamperBehavior field set -> resolves via
+	// EffectiveTamperBehavior() to "quarantine".
+	entered := ApplyTamperBehavior(dir, PolicySettings{TamperBehavior: "quarantine"}, "test", "policy_hmac")
+	if !entered {
+		t.Error("legacy tamper_behavior=quarantine must enter quarantine")
+	}
+}
+
+func TestApplyTamperBehaviorEmptyStateDir(t *testing.T) {
+	entered := ApplyTamperBehavior("", PolicySettings{DefaultOnTamper: "quarantine"}, "test", "policy_hmac")
+	if entered {
+		t.Error("empty stateDir must not crash and must return false")
+	}
 }
 
 func TestGuardAllowsAfterClear(t *testing.T) {

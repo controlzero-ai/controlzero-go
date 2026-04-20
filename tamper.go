@@ -86,3 +86,31 @@ func EnterQuarantine(stateDir, reason, source string) error {
 	}
 	return SaveTamperState(stateDir, ts)
 }
+
+// ApplyTamperBehavior applies the configured default_on_tamper mode
+// when tamper is detected. Semantics match the Python + Node SDKs so
+// cross-language behaviour is consistent:
+//
+//	"warn"        -> only log (no quarantine, no state change).
+//	"deny"        -> caller should deny this one call; no quarantine.
+//	"deny-all"    -> enter quarantine, deny everything until cleared.
+//	"quarantine"  -> same as deny-all (alias).
+//	unknown / ""  -> treat as "warn" (safest forward-compat).
+//
+// Returns true if the machine entered quarantine (so the caller can
+// log / surface the state transition). No-op if stateDir is empty.
+func ApplyTamperBehavior(stateDir string, settings PolicySettings, reason, source string) bool {
+	if stateDir == "" {
+		return false
+	}
+	behavior := settings.EffectiveTamperBehavior()
+	switch behavior {
+	case "deny-all", "quarantine":
+		_ = EnterQuarantine(stateDir, reason, source)
+		return true
+	case "deny", "warn":
+		return false
+	default:
+		return false
+	}
+}

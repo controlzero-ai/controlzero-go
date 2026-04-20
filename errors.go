@@ -11,10 +11,20 @@ import (
 )
 
 // PolicyDecision is the result of evaluating a tool call against a policy.
+//
+// ReasonCode is a machine-readable, cross-language enum value drawn
+// from the constants in reason_codes.go (RULE_MATCH, NO_RULE_MATCH,
+// NO_ACTIVE_POLICIES, BUNDLE_MISSING, BUNDLE_TAMPERED,
+// MACHINE_QUARANTINED, NETWORK_ERROR, DLP_BLOCKED). Automation should
+// branch on ReasonCode, not on Reason -- Reason is free text that may
+// be re-worded between releases. Empty string when the decision
+// predates #228 Phase 2 or when a user-authored rule did not declare
+// a reason_code of its own.
 type PolicyDecision struct {
 	Effect         string // "allow", "deny", "warn", "audit"
 	PolicyID       string
 	Reason         string
+	ReasonCode     string
 	EvaluatedRules int
 }
 

@@ -51,7 +51,15 @@ type Client struct {
 	dlpScanner     *DLPScanner
 	bearerSink     *BearerAuditSink
 	agentName      string
+	policySettings PolicySettings
 }
+
+// PolicySettings returns the effective settings block (default_action,
+// default_on_missing, default_on_tamper, tamper_behavior) that the
+// client was constructed with. Useful for `controlzero status` style
+// introspection and for tests. Returns the canonical defaults if no
+// local policy was configured.
+func (c *Client) PolicySettings() PolicySettings { return c.policySettings }
 
 // AgentName returns the agent identity attached to audit events for this
 // client. Resolution order: WithAgentName option > CZ_AGENT_NAME env var
@@ -196,11 +204,12 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 	}
 
 	if hasLocal {
-		rules, err := LoadPolicy(localSource)
+		parsed, err := LoadPolicyFull(localSource)
 		if err != nil {
 			return nil, err
 		}
-		c.evaluator = NewPolicyEvaluator(rules)
+		c.evaluator = NewPolicyEvaluatorWithSettings(parsed.Rules, parsed.Settings)
+		c.policySettings = parsed.Settings
 
 		// Initialize DLP scanner with built-in patterns. If the policy
 		// contains a dlp_rules section, load those as custom rules on top.
@@ -214,6 +223,8 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 		} else {
 			c.dlpScanner = NewDLPScanner()
 		}
+	} else {
+		c.policySettings = DefaultPolicySettings()
 	}
 
 	if !hasAPIKey {
@@ -263,12 +274,15 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 	}
 
 	// Quarantine check: if this machine is quarantined due to tamper detection,
-	// deny ALL tool calls until recovery.
+	// deny ALL tool calls until recovery. Emits the canonical
+	// MACHINE_QUARANTINED reason_code so dashboards can count
+	// "tamper-driven denies" separately from policy denies.
 	if IsQuarantined(DefaultStateDir()) {
 		decision := PolicyDecision{
 			Effect: "deny",
 			Reason: "Machine quarantined: policy tampering detected. " +
 				"Run 'controlzero enroll' or 'controlzero policy-pull' to recover.",
+			ReasonCode: ReasonCodeMachineQuarantined,
 		}
 		c.auditDecision(tool, method, opts.Args, decision)
 		if opts.RaiseOnDeny {
@@ -287,8 +301,9 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 			if r := recover(); r != nil {
 				// Fail closed on any evaluator panic. NEVER allow on error.
 				decision = PolicyDecision{
-					Effect: "deny",
-					Reason: fmt.Sprintf("Evaluator panic: %v. Failing closed.", r),
+					Effect:     "deny",
+					Reason:     fmt.Sprintf("Evaluator panic: %v. Failing closed.", r),
+					ReasonCode: ReasonCodeNoRuleMatch,
 				}
 			}
 		}()
@@ -307,6 +322,7 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 					Effect:         "deny",
 					PolicyID:       decision.PolicyID,
 					Reason:         "DLP blocking match found in tool arguments",
+					ReasonCode:     ReasonCodeDLPBlocked,
 					EvaluatedRules: decision.EvaluatedRules,
 				}
 			}
@@ -401,13 +417,15 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 	sort.Strings(keys)
 
 	entry := map[string]any{
-		"decision":  decision.Effect,
-		"tool":      tool,
-		"method":    method,
-		"policy_id": decision.PolicyID,
-		"reason":    decision.Reason,
-		"args_keys": keys,
-		"mode":      "local",
+		"decision":    decision.Effect,
+		"tool":        tool,
+		"method":      method,
+		"policy_id":   decision.PolicyID,
+		"reason":      decision.Reason,
+		"reason_code": decision.ReasonCode,
+		"surface":     "go-sdk",
+		"args_keys":   keys,
+		"mode":        "local",
 	}
 
 	if c.audit != nil {
