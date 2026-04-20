@@ -299,43 +299,105 @@ func TranslateToLocalPolicy(payload map[string]any) map[string]any {
 	return map[string]any{"version": "1", "rules": rules}
 }
 
+// isEffectWord reports whether v is one of the four canonical effect
+// keywords. Used to disambiguate `rule.action` (a tool name) from
+// `rule.action` used as a legacy effect fallback.
+func isEffectWord(v string) bool {
+	switch v {
+	case "allow", "deny", "warn", "audit":
+		return true
+	}
+	return false
+}
+
+// translateRule converts a backend-shaped bundle rule into the local
+// policy loader shape.
+//
+// Shapes we accept (matches the Python + Node SDK reference
+// implementations -- the three SDKs MUST agree on any given input so
+// the cross-language parity tests pass):
+//
+//   1. Plural `actions` (backend wire format emitted by
+//      bundle_handler.go PolicyRule.Actions). Takes precedence over
+//      every legacy singular form.
+//   2. Legacy singular `tool` / `pattern`.
+//   3. Legacy singular `action` when NOT an effect keyword
+//      (disambiguated via isEffectWord).
+//   4. Nested `match.tool` / `match.action`.
+//   5. Default "*" (universal match).
+//
+// Before this change the Go translator only handled shapes 2+4+5 --
+// every backend-emitted deny rule ({"actions": ["database:execute"]})
+// silently collapsed to {action: "*"}, turning a narrow deny into a
+// universal deny-all. Same bug class as the Python SDK fix in #221.
 func translateRule(rule map[string]any, policyID string) map[string]any {
+	// Effect resolution: prefer explicit `rule.effect`. Fall back to
+	// `rule.action` only when it is an effect keyword.
 	effect, _ := rule["effect"].(string)
 	if effect == "" {
-		if a, ok := rule["action"].(string); ok {
+		if a, ok := rule["action"].(string); ok && isEffectWord(a) {
 			effect = a
 		} else {
 			effect = "allow"
 		}
 	}
-	valid := map[string]bool{"allow": true, "deny": true, "warn": true, "audit": true}
-	if !valid[effect] {
+	if !isEffectWord(effect) {
 		effect = "allow"
 	}
 
-	var pattern string
-	if p, ok := rule["tool"].(string); ok {
-		pattern = p
-	} else if p, ok := rule["pattern"].(string); ok {
-		pattern = p
-	} else if m, ok := rule["match"].(map[string]any); ok {
-		if p, ok := m["tool"].(string); ok {
-			pattern = p
-		} else if p, ok := m["action"].(string); ok {
-			pattern = p
+	// Tool pattern resolution. Collect into a list so we can preserve
+	// multi-pattern deny rules end-to-end.
+	var patterns []string
+	if arr, ok := rule["actions"].([]any); ok {
+		for _, a := range arr {
+			if s, ok := a.(string); ok && s != "" {
+				patterns = append(patterns, s)
+			}
 		}
 	}
-	if pattern == "" {
-		pattern = "*"
+	if len(patterns) == 0 {
+		if p, ok := rule["tool"].(string); ok && p != "" {
+			patterns = append(patterns, p)
+		} else if p, ok := rule["pattern"].(string); ok && p != "" {
+			patterns = append(patterns, p)
+		}
 	}
+	if len(patterns) == 0 {
+		// Legacy singular `action` -- only when NOT an effect keyword
+		// (already captured above).
+		if p, ok := rule["action"].(string); ok && p != "" && !isEffectWord(p) {
+			patterns = append(patterns, p)
+		}
+	}
+	if len(patterns) == 0 {
+		if m, ok := rule["match"].(map[string]any); ok {
+			if p, ok := m["tool"].(string); ok && p != "" {
+				patterns = append(patterns, p)
+			} else if p, ok := m["action"].(string); ok && p != "" {
+				patterns = append(patterns, p)
+			}
+		}
+	}
+	if len(patterns) == 0 {
+		patterns = []string{"*"}
+	}
+
 	reason, _ := rule["reason"].(string)
 	if reason == "" {
 		reason = "policy:" + policyID
 	}
+
+	// Emit plural `actions` so policy_loader passes the full list
+	// through to the enforcer. Emit the singular `action` alias when
+	// there is exactly one pattern, for parity with the Python + Node
+	// SDK outputs (cross-language golden tests compare action scalars).
 	out := map[string]any{
-		"effect": effect,
-		"action": pattern,
-		"reason": reason,
+		"effect":  effect,
+		"actions": patterns,
+		"reason":  reason,
+	}
+	if len(patterns) == 1 {
+		out["action"] = patterns[0]
 	}
 	if r, ok := rule["resources"]; ok {
 		out["resources"] = r

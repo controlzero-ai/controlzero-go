@@ -293,6 +293,144 @@ func TestTranslateToLocalPolicy_EmptyBecomesDenyAll(t *testing.T) {
 	}
 }
 
+// Parity regression tests for the Go SDK (#229 follow-up).
+//
+// The Go translator previously ignored plural `actions` -- same bug
+// class as the Python SDK fix in #221. A backend-shaped rule with
+// {"actions": ["database:execute"]} was translated to {action: "*"},
+// turning every narrow deny into a universal deny-all. These guard
+// the fix and keep Go byte-identical with the Python + Node SDKs.
+
+func TestTranslateToLocalPolicy_PluralActions_Single(t *testing.T) {
+	out := TranslateToLocalPolicy(map[string]any{
+		"policies": []any{
+			map[string]any{
+				"id":       "p1",
+				"priority": 10.0,
+				"rules": []any{
+					map[string]any{
+						"id":         "r1",
+						"effect":     "deny",
+						"actions":    []any{"database:execute"},
+						"resources":  []any{},
+						"conditions": map[string]any{},
+					},
+				},
+			},
+		},
+	})
+	rules := out["rules"].([]any)
+	if len(rules) != 1 {
+		t.Fatalf("want 1 rule, got %d", len(rules))
+	}
+	r := rules[0].(map[string]any)
+	// Critical: NOT "*". A narrow deny must stay narrow.
+	if r["action"] != "database:execute" {
+		t.Errorf("action: want database:execute, got %v", r["action"])
+	}
+	if r["effect"] != "deny" {
+		t.Errorf("effect: want deny, got %v", r["effect"])
+	}
+}
+
+func TestTranslateToLocalPolicy_PluralActions_Multi(t *testing.T) {
+	out := TranslateToLocalPolicy(map[string]any{
+		"policies": []any{
+			map[string]any{
+				"id":       "p1",
+				"priority": 10.0,
+				"rules": []any{
+					map[string]any{
+						"id":      "r1",
+						"effect":  "deny",
+						"actions": []any{"database:execute", "database:delete"},
+					},
+				},
+			},
+		},
+	})
+	rules := out["rules"].([]any)
+	if len(rules) != 1 {
+		t.Fatalf("want 1 rule, got %d", len(rules))
+	}
+	r := rules[0].(map[string]any)
+	actions, _ := r["actions"].([]string)
+	if len(actions) != 2 || actions[0] != "database:execute" || actions[1] != "database:delete" {
+		t.Errorf("actions: want [database:execute database:delete], got %v", actions)
+	}
+	// With multiple patterns the scalar alias MUST NOT be set -- otherwise
+	// we silently drop the second deny and re-introduce the bug.
+	if _, has := r["action"]; has {
+		t.Errorf("multi-pattern rule must not emit scalar action alias; got %v", r["action"])
+	}
+}
+
+func TestTranslateToLocalPolicy_PluralActions_Precedence(t *testing.T) {
+	out := TranslateToLocalPolicy(map[string]any{
+		"policies": []any{
+			map[string]any{
+				"id":       "p1",
+				"priority": 10.0,
+				"rules": []any{
+					map[string]any{
+						"effect":  "deny",
+						"actions": []any{"database:execute"},
+						"tool":    "legacy_tool",
+					},
+				},
+			},
+		},
+	})
+	rules := out["rules"].([]any)
+	r := rules[0].(map[string]any)
+	if r["action"] != "database:execute" {
+		t.Errorf("plural actions must win over singular tool; got action=%v", r["action"])
+	}
+}
+
+func TestTranslateToLocalPolicy_LegacySingularActionAsToolName(t *testing.T) {
+	// When rule.action is NOT an effect keyword it must be treated as
+	// the tool pattern (legacy form).
+	out := TranslateToLocalPolicy(map[string]any{
+		"policies": []any{
+			map[string]any{
+				"id":       "p1",
+				"priority": 10.0,
+				"rules": []any{
+					map[string]any{"effect": "allow", "action": "github:list_*"},
+				},
+			},
+		},
+	})
+	rules := out["rules"].([]any)
+	r := rules[0].(map[string]any)
+	if r["action"] != "github:list_*" {
+		t.Errorf("action: want github:list_*, got %v", r["action"])
+	}
+	if r["effect"] != "allow" {
+		t.Errorf("effect: want allow, got %v", r["effect"])
+	}
+}
+
+func TestTranslateToLocalPolicy_EmptyActionsFallsBackToWildcard(t *testing.T) {
+	out := TranslateToLocalPolicy(map[string]any{
+		"policies": []any{
+			map[string]any{
+				"id":       "p1",
+				"priority": 10.0,
+				"rules": []any{
+					map[string]any{"effect": "deny", "actions": []any{}, "reason": "catch-all"},
+				},
+			},
+		},
+	})
+	rules := out["rules"].([]any)
+	r := rules[0].(map[string]any)
+	if r["action"] != "*" {
+		t.Errorf("empty actions: want *, got %v", r["action"])
+	}
+}
+
 // Sanity: construct a bundle and verify the header bytes match the
 // backend's buildBundle() byte layout.
 func TestHeaderLayout(t *testing.T) {
