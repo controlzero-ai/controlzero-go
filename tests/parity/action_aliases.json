@@ -1,0 +1,55 @@
+{
+  "comment": "Cross-SDK conformance fixture for legacy <-> canonical action aliases (T84). Every SDK (Python, Node, Go) ships an internal alias table whose JSON dump must be byte-identical to this file. Pre-#350 customer rules used legacy database action names (query, SELECT, DROP, ...). The SDK emits canonical SQL semantic classes (database:read|write|admin|exec) starting in #345/#350. For zero-breaking-changes, the enforcer expands candidate_actions to include legacy aliases bidirectionally, so a rule using database:query keeps matching modern SELECT calls and a rule using database:read keeps matching legacy database:SELECT calls. database:delete is intentionally ambiguous (legacy used it for both DELETE row and DROP table) and maps to BOTH write and admin.",
+  "version": 1,
+  "tool": "database",
+  "classes": {
+    "read": {
+      "canonical": "database:read",
+      "aliases": [
+        "query",
+        "SELECT",
+        "EXPLAIN",
+        "SHOW",
+        "DESCRIBE",
+        "FETCH",
+        "READ"
+      ]
+    },
+    "write": {
+      "canonical": "database:write",
+      "aliases": [
+        "UPDATE",
+        "INSERT",
+        "DELETE",
+        "MERGE",
+        "UPSERT",
+        "REPLACE"
+      ]
+    },
+    "admin": {
+      "canonical": "database:admin",
+      "aliases": [
+        "DROP",
+        "CREATE",
+        "TRUNCATE",
+        "ALTER",
+        "GRANT",
+        "REVOKE",
+        "RENAME"
+      ]
+    },
+    "exec": {
+      "canonical": "database:exec",
+      "aliases": [
+        "execute",
+        "EXECUTE",
+        "EXEC",
+        "CALL",
+        "do"
+      ]
+    }
+  },
+  "ambiguous_aliases": {
+    "delete": ["write", "admin"]
+  }
+}

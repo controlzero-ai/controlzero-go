@@ -1,0 +1,64 @@
+# controlzero policy file: cost-cap template
+# Schema version 1
+#
+# This template demonstrates model allow-listing and cost guards. Use it as a
+# starting point for projects where you want to cap LLM spend or restrict
+# which models agents can call.
+#
+# NOTE: cost-aware conditions (e.g. "deny if estimated cost > $1") are evaluated
+# in hosted mode by the dashboard policy engine. In local mode they are recorded
+# but not enforced inline; they require runtime cost data to evaluate.
+#
+# Run:
+#   controlzero validate controlzero.yaml
+#   controlzero test llm_call --policy controlzero.yaml
+
+version: '1'
+
+rules:
+  # ---------- ALLOW: cheap and capable models ----------
+  - id: allow-haiku
+    allow: 'llm_call'
+    resources:
+      - 'model:claude-haiku-*'
+    reason: 'Haiku is cheap, allow freely'
+
+  - id: allow-sonnet
+    allow: 'llm_call'
+    resources:
+      - 'model:claude-sonnet-*'
+    reason: 'Sonnet is the default workhorse'
+
+  - id: allow-gpt-mini
+    allow: 'llm_call'
+    resources:
+      - 'model:gpt-4o-mini'
+      - 'model:gpt-4-mini'
+    reason: 'Mini models are cheap'
+
+  # ---------- DENY: expensive frontier models without explicit project approval ----------
+  - id: deny-claude-opus
+    deny: 'llm_call'
+    resources:
+      - 'model:claude-opus-*'
+    reason: 'Opus is high cost, requires project approval to enable'
+
+  - id: deny-gpt-4-32k
+    deny: 'llm_call'
+    resources:
+      - 'model:gpt-4-32k'
+    reason: 'Large context GPT-4 is high cost'
+
+  # ---------- ALLOW: tool calls (not LLM calls) ----------
+  - id: allow-vector-search
+    allow: 'vector_search'
+    reason: 'Free tools are fine'
+
+  - id: allow-tool-reads
+    allow: '*:read'
+    reason: 'Reads are free'
+
+  # ---------- DENY: catch-all ----------
+  - id: catch-all-deny
+    deny: '*'
+    reason: 'Default deny'

@@ -1,0 +1,89 @@
+# controlzero policy: LangChain / LangGraph template
+# Schema version 1
+#
+# This template is opinionated for LangChain and LangGraph agents. The
+# assumption: your agent is a chain of Tools, and you want each Tool call
+# gated by Control Zero before it executes.
+#
+# Wire it into code:
+#
+#   from controlzero import Client
+#   from langchain_core.tools import tool
+#
+#   cz = Client(policy_file="./controlzero.yaml")
+#
+#   @tool
+#   def delete_user(user_id: str) -> str:
+#       cz.guard("delete_user", {"user_id": user_id})
+#       # ... your delete logic ...
+#
+# The guard() call raises PolicyDeniedError if the policy denies. Your
+# LangGraph state machine can catch it and route to a human-in-the-loop
+# node, or just propagate it as a tool error back to the model.
+#
+# What this template blocks out of the box:
+#   - Destructive DB tools (drop, truncate, delete_all)
+#   - Filesystem writes to sensitive paths
+#   - Outbound network to arbitrary hosts
+#
+# What it allows:
+#   - Read-heavy tools (search, lookup, fetch_*)
+#   - Scoped writes (insert, update, append)
+#
+# Customize the allow/deny lists at the bottom for your own tool names.
+
+version: '1'
+
+rules:
+  # ============================================================
+  # DENY: destructive DB operations
+  # ============================================================
+  - id: deny-db-drop
+    deny: 'db_drop_*'
+    reason: 'Dropping database objects requires manual approval'
+
+  - id: deny-db-truncate
+    deny: 'db_truncate_*'
+    reason: 'Truncating tables is destructive; requires manual approval'
+
+  - id: deny-bulk-delete
+    deny: 'delete_all_*'
+    reason: 'Bulk deletes require manual approval'
+
+  # ============================================================
+  # DENY: filesystem writes to sensitive paths
+  # ============================================================
+  # v0.1 can only match on tool name, not arguments. This denies
+  # any Tool named *_etc_* or *_ssh_* as a defensive first pass.
+  - id: deny-fs-etc
+    deny: '*_etc_*'
+    reason: 'Writes to /etc are blocked'
+
+  - id: deny-fs-ssh
+    deny: '*_ssh_*'
+    reason: 'SSH config writes are blocked'
+
+  # ============================================================
+  # ALLOW: common LangChain tool names
+  # ============================================================
+  - id: allow-search
+    allow: 'search*'
+    reason: 'Search tools are safe by default'
+
+  - id: allow-fetch
+    allow: 'fetch_*'
+    reason: 'Fetch tools are safe by default'
+
+  - id: allow-lookup
+    allow: 'lookup_*'
+    reason: 'Lookup tools are safe by default'
+
+  - id: allow-list
+    allow: 'list_*'
+    reason: 'List tools are safe by default'
+
+  # ============================================================
+  # Default: deny anything not explicitly allowed (fail-closed)
+  # ============================================================
+  # No catch-all allow at the bottom. The v0.1 evaluator already
+  # fails closed, so anything that falls through lands in deny.

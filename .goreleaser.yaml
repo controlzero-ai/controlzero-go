@@ -1,0 +1,69 @@
+# GoReleaser config for the controlzero CLI binary.
+# Cross-compiles to linux/darwin/windows on amd64/arm64.
+
+version: 2
+
+project_name: controlzero
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: controlzero
+    main: ./cmd/controlzero
+    binary: controlzero
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+
+archives:
+  - id: controlzero
+    builds:
+      - controlzero
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: controlzero
+    name: controlzero
+  draft: false
+  prerelease: auto
+  name_template: 'controlzero {{.Version}}'

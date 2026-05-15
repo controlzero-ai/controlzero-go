@@ -1,0 +1,79 @@
+# controlzero policy: AutoGen template
+# Schema version 1
+#
+# Microsoft AutoGen agents execute code, call functions, and talk to
+# each other. The most common footgun is AutoGen's code_execution_config
+# which runs Python inside a Docker container. This template denies
+# bare execute_code by default and allows named tools you've vetted.
+#
+# Wire it into code:
+#
+#   from controlzero import Client
+#   from autogen import AssistantAgent, UserProxyAgent
+#
+#   cz = Client(policy_file="./controlzero.yaml")
+#
+#   def safe_function_call(name, args):
+#       cz.guard(name, args)
+#       # ... your function ...
+#
+#   assistant = AssistantAgent(
+#       name="assistant",
+#       function_map={"search": safe_function_call},
+#   )
+#
+# Tip: pair this with AutoGen's own human_input_mode="ALWAYS" during
+# development. Control Zero is the automated guard; human review is
+# the escape hatch while you tune the rules.
+
+version: '1'
+
+rules:
+  # ============================================================
+  # DENY: bare code execution
+  # ============================================================
+  - id: deny-execute-code
+    deny: 'execute_code'
+    reason: 'Unscoped code execution is blocked'
+
+  - id: deny-python-repl
+    deny: 'python_repl*'
+    reason: 'Python REPL access is blocked'
+
+  - id: deny-shell
+    deny: 'shell_exec*'
+    reason: 'Shell execution is blocked'
+
+  # ============================================================
+  # ALLOW: named research + retrieval tools
+  # ============================================================
+  - id: allow-search
+    allow: 'search*'
+    reason: 'Search is safe'
+
+  - id: allow-retrieve
+    allow: 'retrieve_*'
+    reason: 'Retrieval tools are safe'
+
+  - id: allow-calculator
+    allow: 'calculator'
+    reason: 'Math is safe'
+
+  - id: allow-get-weather
+    allow: 'get_weather'
+    reason: 'Example safe utility'
+
+  # ============================================================
+  # DENY: outbound actions
+  # ============================================================
+  - id: deny-send-message
+    deny: 'send_*'
+    reason: 'Outbound messages require manual approval'
+
+  - id: deny-post
+    deny: 'post_*'
+    reason: 'HTTP POST side-effects require manual approval'
+
+  # ============================================================
+  # Default: fail-closed
+  # ============================================================
