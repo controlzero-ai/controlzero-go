@@ -51,20 +51,73 @@ const (
 	// action="block" matched the tool arguments and overrode a
 	// would-be allow decision.
 	ReasonCodeDLPBlocked = "DLP_BLOCKED"
+
+	// HITL approval-flow reason codes (HITL-5c, gh#540). The actual
+	// request-approval flow ships in v1.8.0 (HITL-6a, gh#542); v1.7.6
+	// registers the codes so audit rows from a v1.8.0+ client can be
+	// accepted by a v1.7.6 ingest path without rejection during a
+	// mixed-version rollout. v1.7.6 itself never emits these codes.
+
+	// ReasonCodeHITLSDKTimeout is emitted when the SDK waited the
+	// configured timeout for an approver verdict and gave up.
+	ReasonCodeHITLSDKTimeout = "HITL_SDK_TIMEOUT"
+
+	// ReasonCodeHITLSLAExpired is emitted when the backend's SLA
+	// timer expired before any approver acted on the request.
+	ReasonCodeHITLSLAExpired = "HITL_SLA_EXPIRED"
+
+	// ReasonCodeHITLBackendUnreachable is emitted when the SDK could
+	// not reach the backend to enqueue the approval request.
+	ReasonCodeHITLBackendUnreachable = "HITL_BACKEND_UNREACHABLE"
+
+	// ReasonCodeHITLPolicyVersionConflict is emitted when the policy
+	// bundle changed between request and verdict, invalidating the
+	// pending approval.
+	ReasonCodeHITLPolicyVersionConflict = "HITL_POLICY_VERSION_CONFLICT"
+
+	// ReasonCodeHITLNoApproverAvailable is emitted when no eligible
+	// approver was online or reachable at request time.
+	ReasonCodeHITLNoApproverAvailable = "HITL_NO_APPROVER_AVAILABLE"
+
+	// ReasonCodeHITLIdentityNotInOrg is emitted when the approving
+	// identity is not a member of the request's org.
+	ReasonCodeHITLIdentityNotInOrg = "HITL_IDENTITY_NOT_IN_ORG"
+
+	// ReasonCodeHITLIdentityRequired is emitted when the request
+	// requires an authenticated identity claim and none was provided.
+	ReasonCodeHITLIdentityRequired = "HITL_IDENTITY_REQUIRED"
+
+	// ReasonCodeHITLIdentityClaimRejected is emitted when the
+	// identity claim attached to the request failed verification.
+	ReasonCodeHITLIdentityClaimRejected = "HITL_IDENTITY_CLAIM_REJECTED"
+
+	// ReasonCodeHITLArgsHashMismatch is emitted when the args hash
+	// at verdict time differs from the args hash at request time,
+	// indicating the call payload mutated mid-approval.
+	ReasonCodeHITLArgsHashMismatch = "HITL_ARGS_HASH_MISMATCH"
 )
 
 // ValidReasonCodes is the full enum, exposed for tests + downstream
 // validators. Unknown codes from a newer SDK version are still
 // permitted on the wire; this set is informational, not a gate.
 var ValidReasonCodes = map[string]bool{
-	ReasonCodeRuleMatch:          true,
-	ReasonCodeNoRuleMatch:        true,
-	ReasonCodeNoActivePolicies:   true,
-	ReasonCodeBundleMissing:      true,
-	ReasonCodeBundleTampered:     true,
-	ReasonCodeMachineQuarantined: true,
-	ReasonCodeNetworkError:       true,
-	ReasonCodeDLPBlocked:         true,
+	ReasonCodeRuleMatch:                 true,
+	ReasonCodeNoRuleMatch:               true,
+	ReasonCodeNoActivePolicies:          true,
+	ReasonCodeBundleMissing:             true,
+	ReasonCodeBundleTampered:            true,
+	ReasonCodeMachineQuarantined:        true,
+	ReasonCodeNetworkError:              true,
+	ReasonCodeDLPBlocked:                true,
+	ReasonCodeHITLSDKTimeout:            true,
+	ReasonCodeHITLSLAExpired:            true,
+	ReasonCodeHITLBackendUnreachable:    true,
+	ReasonCodeHITLPolicyVersionConflict: true,
+	ReasonCodeHITLNoApproverAvailable:   true,
+	ReasonCodeHITLIdentityNotInOrg:      true,
+	ReasonCodeHITLIdentityRequired:      true,
+	ReasonCodeHITLIdentityClaimRejected: true,
+	ReasonCodeHITLArgsHashMismatch:      true,
 }
 
 // Synthetic policy_id sentinels (T79 / the deny-deny postmortem,

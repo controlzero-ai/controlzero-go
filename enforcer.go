@@ -22,6 +22,14 @@ type PolicyRule struct {
 	Conditions map[string]any
 	Reason     string // Human-readable explanation, surfaced in audit + denies
 	ReasonCode string // Machine-readable code (see reason_codes.go)
+
+	// EscalateOnDeny is the HITL escalation tag (HITL-5c, gh#540):
+	// when true and the rule's effect is `deny`, future SDK versions
+	// will mark the resulting PolicyDecision as hitl_eligible=true.
+	// The actual approval-request flow ships in v1.8.0 (HITL-6a,
+	// gh#542); v1.7.6 just acknowledges the field so a customer
+	// pre-tagging rules for HITL does not crash an old client.
+	EscalateOnDeny bool
 }
 
 // PolicyEvaluator runs in-process. Fail-closed by default: if no rule

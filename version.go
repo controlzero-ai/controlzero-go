@@ -17,7 +17,7 @@ package controlzero
 // Version is the package version of the controlzero Go SDK. Bump
 // this in lockstep with the git tag in sdks/go/controlzero. The drift
 // CI guard enforces equality on every PR that touches the package.
-const Version = "v1.7.5"
+const Version = "v1.7.6"
 
 // sdkVersionWire is the "<lang>@<version>" wire-format value the
 // audit POST carries. 64-char cap mirrors the backend ingest gate

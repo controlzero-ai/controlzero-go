@@ -402,14 +402,16 @@ func TestClientHonoursDefaultActionEndToEnd(t *testing.T) {
 
 // TestValidReasonCodesContainsAllEight: pins the cross-language enum
 // membership so a rename does not drift across SDKs.
+//
+// Subset check (not strict equality) so additive code expansions
+// (e.g. HITL-5c v1.7.6: 9 new HITL_* codes added 2026-05-16) do not
+// break this rename-guarantee test. The exact total is asserted by
+// reason_codes_hitl_test.go::TestValidReasonCodesGrewByExactlyNine.
 func TestValidReasonCodesContainsAllEight(t *testing.T) {
 	want := []string{
 		"RULE_MATCH", "NO_RULE_MATCH", "NO_ACTIVE_POLICIES",
 		"BUNDLE_MISSING", "BUNDLE_TAMPERED", "MACHINE_QUARANTINED",
 		"NETWORK_ERROR", "DLP_BLOCKED",
-	}
-	if len(controlzero.ValidReasonCodes) != len(want) {
-		t.Errorf("len(ValidReasonCodes) = %d, want %d", len(controlzero.ValidReasonCodes), len(want))
 	}
 	for _, v := range want {
 		if !controlzero.ValidReasonCodes[v] {

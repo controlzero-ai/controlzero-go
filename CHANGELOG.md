@@ -1,5 +1,57 @@
 # Changelog
 
+## v1.7.6 -- 2026-05-16 (HITL-5c, gh#540)
+
+Pure additive minor preparing for the HITL approval flow that ships
+in v1.8.0 (HITL-6a, gh#542). Zero behavior change on existing
+policies. ZERO new public API surface beyond the 9 reason-code
+constants below.
+
+### Added
+
+- **`escalate_on_deny: bool` rule key** acknowledged by the policy
+  validator and persisted on `PolicyRule.EscalateOnDeny` (default
+  `false`). Customers may pre-tag rules for HITL eligibility today;
+  v1.7.6 does not yet promote a matched rule to `hitl_eligible=true`
+  on the decision -- that ships in v1.8.0 alongside the approval-
+  request workflow.
+- **Levenshtein-1 typo guardrail** on unknown rule keys. Unknown
+  keys remain silently accepted (additive contract; never break
+  existing YAML), but a Levenshtein-1 near-miss to a known key
+  fires a stderr warning so the customer can self-correct:
+
+      controlzero: rules[0] unknown key "escalate_on_dny"; did you mean "escalate_on_deny"?
+
+  Catches substitutions / insertions / deletions; transpositions
+  (distance 2) are intentionally not caught.
+
+- **9 new HITL reason codes** registered in `ValidReasonCodes` so
+  audit rows emitted by a v1.8.0+ client during mixed-version
+  rollout are accepted by a v1.7.6 ingest path:
+  `HITL_SDK_TIMEOUT`, `HITL_SLA_EXPIRED`, `HITL_BACKEND_UNREACHABLE`,
+  `HITL_POLICY_VERSION_CONFLICT`, `HITL_NO_APPROVER_AVAILABLE`,
+  `HITL_IDENTITY_NOT_IN_ORG`, `HITL_IDENTITY_REQUIRED`,
+  `HITL_IDENTITY_CLAIM_REJECTED`, `HITL_ARGS_HASH_MISMATCH`.
+  Exported as `ReasonCodeHITL*` constants. v1.7.6 itself never
+  EMITS these codes.
+
+### Changed
+
+- `TestValidReasonCodesContainsAllEight` switched from strict-equality
+  length check to subset check so future additive code expansions
+  do not break the rename-guarantee test. Exact total is asserted
+  by `TestValidReasonCodesGrewByExactlyNine` in
+  `reason_codes_hitl_test.go`.
+
+### Cross-SDK parity
+
+Mirrors the Python 1.5.8 (HITL-5a, gh#538) and Node SDK HITL-5b
+(gh#539) shipments. All three SDKs share the same 9-code spelling,
+the same `escalate_on_deny` rule key, and the same Levenshtein-1
+typo-warning behavior.
+
+Closes gh#540.
+
 ## v1.7.5 -- 2026-05-16 (PRIVACY, RETRACT EXPAND + FIXTURE SCRUB)
 
 ### Changed

@@ -31,6 +31,74 @@ var ValidTamperBehaviors = map[string]bool{
 	"quarantine": true,
 }
 
+// knownRuleKeys is the allowlist used by the typo guardrail (HITL-5c,
+// gh#540) to surface "did you mean?" warnings on near-miss unknown
+// rule keys. Unknown keys are still silently accepted (additive
+// contract; never break existing YAML) but a Levenshtein-1 match on
+// a known key fires a stderr warning so the customer can self-correct.
+//
+// Kept in lockstep with the Python `_KNOWN_RULE_KEYS` and the Node
+// `KNOWN_RULE_KEYS` sets so warnings render identically cross-SDK.
+var knownRuleKeys = map[string]bool{
+	"id":               true,
+	"name":             true,
+	"deny":             true,
+	"allow":            true,
+	"effect":           true,
+	"action":           true,
+	"actions":          true,
+	"resource":         true,
+	"resources":        true,
+	"when":             true,
+	"conditions":       true,
+	"reason":           true,
+	"reason_code":      true,
+	"escalate_on_deny": true, // HITL tag (additive in v1.7.6; behavior in v1.8.0)
+}
+
+// levenshteinLE1 returns true iff the edit distance between a and b
+// is exactly 0 or 1. Used by the typo guardrail to suggest fixes for
+// unknown rule keys that are one keystroke away from a known one
+// (e.g. `escalate_on_dny` -> `escalate_on_deny`). Pure stdlib; no
+// external dependency. Catches substitutions / insertions / deletions
+// but NOT transpositions (those are distance 2 in basic Levenshtein).
+func levenshteinLE1(a, b string) bool {
+	if a == b {
+		return true
+	}
+	la, lb := len(a), len(b)
+	if la > lb+1 || lb > la+1 {
+		return false
+	}
+	if la > lb {
+		a, b = b, a
+		la, lb = lb, la
+	}
+	// la <= lb; check for one substitution (la == lb) or one insertion.
+	i, j, diffs := 0, 0, 0
+	for i < la && j < lb {
+		if a[i] != b[j] {
+			diffs++
+			if diffs > 1 {
+				return false
+			}
+			if la == lb {
+				i++
+				j++
+			} else {
+				j++ // insertion in b
+			}
+		} else {
+			i++
+			j++
+		}
+	}
+	if j < lb {
+		diffs += lb - j
+	}
+	return diffs <= 1
+}
+
 // ValidDefaultActions is the canonical enum for settings.default_action
 // and bundle-level default_action. See S1.
 var ValidDefaultActions = map[string]bool{
@@ -374,6 +442,24 @@ func validateAndTranslate(data map[string]any, sourceLabel string) (ParsedPolicy
 			continue
 		}
 
+		// Typo guardrail (HITL-5c, gh#540): warn on unknown rule keys
+		// that are within Levenshtein-1 of a known key. Unknown keys
+		// are still silently accepted (additive contract); the
+		// warning is stderr-only and does not block parsing.
+		for k := range ruleMap {
+			if knownRuleKeys[k] {
+				continue
+			}
+			for known := range knownRuleKeys {
+				if levenshteinLE1(k, known) {
+					fmt.Fprintf(os.Stderr,
+						"controlzero: rules[%d] unknown key %q; did you mean %q?\n",
+						i, k, known)
+					break
+				}
+			}
+		}
+
 		_, hasDeny := ruleMap["deny"]
 		_, hasAllow := ruleMap["allow"]
 		explicitEffect, hasExplicit := ruleMap["effect"].(string)
@@ -482,15 +568,25 @@ func validateAndTranslate(data map[string]any, sourceLabel string) (ParsedPolicy
 			reasonCode = fmt.Sprintf("%v", rc)
 		}
 
+		// HITL escalation tag (HITL-5c, gh#540). Coerce truthy values;
+		// non-bool / missing => false. The actual request-approval
+		// flow ships in v1.8.0 (HITL-6a); v1.7.6 just persists the
+		// field so old SDKs don't crash on rules that pre-tag for HITL.
+		escalateOnDeny := false
+		if v, ok := ruleMap["escalate_on_deny"]; ok && v != nil {
+			escalateOnDeny = toBool(v)
+		}
+
 		out = append(out, PolicyRule{
-			ID:         id,
-			Name:       name,
-			Effect:     effect,
-			Actions:    actions,
-			Resources:  resources,
-			Conditions: conditions,
-			Reason:     reasonStr,
-			ReasonCode: reasonCode,
+			ID:             id,
+			Name:           name,
+			Effect:         effect,
+			Actions:        actions,
+			Resources:      resources,
+			Conditions:     conditions,
+			Reason:         reasonStr,
+			ReasonCode:     reasonCode,
+			EscalateOnDeny: escalateOnDeny,
 		})
 	}
 
@@ -499,6 +595,32 @@ func validateAndTranslate(data map[string]any, sourceLabel string) (ParsedPolicy
 	}
 
 	return ParsedPolicy{Rules: out, Settings: settings}, nil
+}
+
+// toBool coerces a YAML/JSON-decoded value to bool, mirroring Python's
+// `bool(x)` truth-table for the values customers might write. Used by
+// the HITL-5c `escalate_on_deny` field so customers can write `true`,
+// `false`, `1`, `0`, `"yes"`, etc. without crashing the validator.
+func toBool(v any) bool {
+	switch x := v.(type) {
+	case bool:
+		return x
+	case int:
+		return x != 0
+	case int64:
+		return x != 0
+	case float64:
+		return x != 0
+	case string:
+		switch strings.ToLower(strings.TrimSpace(x)) {
+		case "", "false", "no", "0", "off":
+			return false
+		default:
+			return true
+		}
+	default:
+		return false
+	}
 }
 
 func toStringSlice(v any) []string {
