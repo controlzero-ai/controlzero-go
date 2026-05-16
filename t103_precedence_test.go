@@ -11,7 +11,7 @@ import (
 
 // T103 regression tests for the hosted-vs-local precedence rules.
 //
-// an enterprise customer (Korea) 2026-05-12: a stale local policy file
+// Customer report 2026-05-12: a stale local policy file
 // shadowed the dashboard policy when api_key was also set. Post-T103
 // the api_key path wins by default; local is a fallback only when no
 // api_key OR CONTROLZERO_LOCAL_OVERRIDE=1.

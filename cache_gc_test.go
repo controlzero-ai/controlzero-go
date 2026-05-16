@@ -8,8 +8,8 @@ import (
 
 // T104 regression: stale cache GC on key rotation.
 //
-// an enterprise customer (Korea) 2026-05-12: rotated his api_key from
-// cz_live_566b... to cz_live_1af8.... The old key's cache files
+// Customer report 2026-05-12: api_key rotation from one value to
+// another, with the old key's cache files The old key's cache files
 // lingered for 25 days next to the new bootstrap. T104 removes any
 // cache files whose scope does NOT match the active key on the next
 // fresh bootstrap fetch.
@@ -40,33 +40,33 @@ func setupSandboxHome(t *testing.T) string {
 
 func TestGcStaleCache_RemovesRotatedKeys(t *testing.T) {
 	cacheDir := setupSandboxHome(t)
-	writeTriplet(t, cacheDir, "cz_live_566b")
-	writeTriplet(t, cacheDir, "cz_live_1af8")
+	writeTriplet(t, cacheDir, "cz_live_aaaa")
+	writeTriplet(t, cacheDir, "cz_live_bbbb")
 
-	removed := gcStaleCache("cz_live_1af8fd9bcafe")
+	removed := gcStaleCache("cz_live_bbbbbbbbbbbb")
 
 	if removed != 3 {
 		t.Fatalf("expected 3 removed, got %d", removed)
 	}
 	for _, name := range []string{
-		"bootstrap-cz_live_566b.json",
-		"bundle-cz_live_566b.bin",
-		"bundle-cz_live_566b.meta",
+		"bootstrap-cz_live_aaaa.json",
+		"bundle-cz_live_aaaa.bin",
+		"bundle-cz_live_aaaa.meta",
 	} {
 		if _, err := os.Stat(filepath.Join(cacheDir, name)); !os.IsNotExist(err) {
 			t.Errorf("expected %s removed, still present", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(cacheDir, "bootstrap-cz_live_1af8.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(cacheDir, "bootstrap-cz_live_bbbb.json")); err != nil {
 		t.Errorf("active bootstrap unexpectedly removed: %v", err)
 	}
 }
 
 func TestGcStaleCache_NoopWhenOnlyActiveKey(t *testing.T) {
 	cacheDir := setupSandboxHome(t)
-	writeTriplet(t, cacheDir, "cz_live_1af8")
+	writeTriplet(t, cacheDir, "cz_live_bbbb")
 
-	if removed := gcStaleCache("cz_live_1af8fd9bcafe"); removed != 0 {
+	if removed := gcStaleCache("cz_live_bbbbbbbbbbbb"); removed != 0 {
 		t.Fatalf("expected 0 removed, got %d", removed)
 	}
 }

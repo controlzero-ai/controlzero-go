@@ -3,9 +3,8 @@
 // SDKs exactly so a machine enrolled with one client can be used
 // by the others. Uses Go stdlib only -- no new dependencies.
 //
-// Wire-format reference:
-//
-//	apps/control-zero-platform/backend/internal/api/middleware/machine_auth.go
+// Wire-format contract: see the public docs and OpenAPI spec for the
+// machine-auth endpoint at https://docs.controlzero.ai.
 
 package controlzero
 

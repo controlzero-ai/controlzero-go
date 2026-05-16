@@ -2,9 +2,9 @@
 // stderr notification (T103 follow-up, v1.7.1 security fix).
 //
 // Before v1.7.1 the SDK printed apiKey[:14] to stderr on every Client
-// construction in hosted mode. For a cz_live_abcdef123456... key that
-// meant 6 characters of the customer secret leaked to terminals, screen
-// shares, support transcripts, and CI logs.
+// construction in hosted mode. For a cz_live_<...> key that meant 6
+// characters of the customer secret leaked to terminals, screen shares,
+// support transcripts, and CI logs.
 //
 // The mask MUST:
 //   - preserve the public cz_live_ / cz_test_ prefix as a mode signal
@@ -18,14 +18,14 @@ import (
 )
 
 func TestApiKeyPrefix_Live(t *testing.T) {
-	got := apiKeyPrefix("cz_live_7ebef6b600015e3eaeda9149bf6d9c29a")
+	got := apiKeyPrefix("cz_live_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	if got != "cz_live_***" {
 		t.Fatalf("want cz_live_***, got %q", got)
 	}
 }
 
 func TestApiKeyPrefix_Test(t *testing.T) {
-	got := apiKeyPrefix("cz_test_abcdef0123456789abcdef0123456789")
+	got := apiKeyPrefix("cz_test_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	if got != "cz_test_***" {
 		t.Fatalf("want cz_test_***, got %q", got)
 	}
@@ -50,10 +50,13 @@ func TestApiKeyPrefix_Empty(t *testing.T) {
 // future regression that switches back to a length-prefix slice fails
 // this test loudly.
 func TestApiKeyPrefix_NoSecretLeak(t *testing.T) {
-	// Anonymised: a real production key was leaked via
-	// stderr on 2026-05-12. The customer rotated it after the
-	// v1.7.0 -> v1.7.1 incident.
-	secretTail := "7ebef6b600015e3eaeda9149bf6d9c29a3a2a7a3075209112afde20888280de0"
+	// Obviously-synthetic fixture (64 'c' bytes). The 4-char window
+	// test remains meaningful: "cccc" must not appear in the masked
+	// output (it cannot, since the mask is `cz_<mode>_***`). The
+	// previous fixture in this file was a 64-hex string whose format
+	// mimicked a customer secret too closely; replaced 2026-05-16
+	// per the Publishing_Rules.md mandate.
+	secretTail := strings.Repeat("c", 64)
 	for _, prefix := range []string{"cz_live_", "cz_test_"} {
 		key := prefix + secretTail
 		masked := apiKeyPrefix(key)

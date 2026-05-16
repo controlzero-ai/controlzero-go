@@ -22,14 +22,19 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 )
 
-// Retracted: contained customer-name references in inline comments
-// and a realistic-looking cz_live_* test fixture. Replaced same-day
-// by v1.7.3 (then v1.7.4 with this retract directive). Use v1.7.4
-// or later.
-retract v1.7.2
-
-// Retracted: superseded by v1.7.4 because the mirror at
-// controlzero-ai/controlzero-go had its git history rewritten to
-// purge the v1.7.2 dirty commits, so the v1.7.3 tag no longer
-// resolves on the mirror. Use v1.7.4 or later.
-retract v1.7.3
+// Retracted range [v1.7.0, v1.7.4]:
+//   v1.7.0, v1.7.1, v1.7.2 -- contained customer-name references in
+//     inline comments and a realistic-looking cz_live_* test fixture
+//     (privacy class). Source verified via:
+//       git show sdks/go/controlzero/v1.7.X:sdks/go/controlzero/client.go
+//   v1.7.3 -- scrubbed source but its tag was deleted from the mirror
+//     at controlzero-ai/controlzero-go during the 2026-05-16 history
+//     rewrite, so the tag no longer resolves at the upstream.
+//     proxy.golang.org cache is independent and is being addressed
+//     by a separate module-proxy-removal request.
+//   v1.7.4 -- shipped the un-scrubbed api_key_mask_test.go fixture
+//     (a 64-hex string whose format mimicked a customer secret too
+//     closely). v1.7.5 is the clean version. Same privacy-class
+//     concern as v1.7.0..v1.7.2.
+// Use v1.7.5 or later.
+retract [v1.7.0, v1.7.4]

@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.7.5 -- 2026-05-16 (PRIVACY, RETRACT EXPAND + FIXTURE SCRUB)
+
+### Changed
+
+- **`retract` directive expanded to cover the full leak window.** v1.7.4
+  retracted only v1.7.2 and v1.7.3, but the customer-name leakage was
+  introduced in commits that shipped in v1.7.0 and v1.7.1 as well
+  (verified via `git show sdks/go/controlzero/v1.7.X:.../client.go`).
+  v1.7.5 replaces the two single-version retract lines in `go.mod`
+  with a range directive `retract [v1.7.0, v1.7.3]` so tools resolving
+  `controlzero.ai/sdk/go@v1.7.X` for any X in {0,1,2,3,4} now print a
+  retraction warning. v1.7.4 shipped the un-scrubbed `api_key_mask_test.go`
+  fixture; v1.7.5 is the clean version. Use v1.7.5 or later.
+- **`api_key_mask_test.go` fixture replaced.** The previous test fixture
+  was a 64-hex-char string whose format mimicked a customer secret too
+  closely. Same leak class as the `cz_live_d003253c...` fixture scrubbed
+  in v1.7.3. Replaced with an obviously-synthetic `cz_live_aaaa...` /
+  `cz_test_bbbb...` pattern. v1.7.4 ships the un-scrubbed fixture;
+  v1.7.5 is the clean version.
+- **Why this slipped through earlier scrub passes:** the v1.7.3 scrub
+  caught the `d003253c...` fixture and the v1.7.4 retract expansion
+  did not re-audit test fixtures. The v1.7.5 PR was reviewed by an
+  outside voice (Codex) before merge, which caught the missed file.
+  See `Outside_Voice_Review_Process.md` in the project notes for the
+  new standing review rule.
+
 ## v1.7.4 -- 2026-05-16 (PRIVACY, RETRACT)
 
 ### Changed

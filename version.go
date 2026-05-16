@@ -17,14 +17,13 @@ package controlzero
 // Version is the package version of the controlzero Go SDK. Bump
 // this in lockstep with the git tag in sdks/go/controlzero. The drift
 // CI guard enforces equality on every PR that touches the package.
-const Version = "v1.7.4"
+const Version = "v1.7.5"
 
 // sdkVersionWire is the "<lang>@<version>" wire-format value the
 // audit POST carries. 64-char cap mirrors the backend ingest gate
-// (apps/control-zero-platform/backend/internal/api/handlers/audit_ingest_handler.go
-// MaxControlzeroSDKVersionLen) so over-length values never round-trip.
-// Computed once at package init so audit_remote.go can read it
-// without re-allocating per row.
+// (MaxControlzeroSDKVersionLen) so over-length values never
+// round-trip. Computed once at package init so audit_remote.go can
+// read it without re-allocating per row.
 var sdkVersionWire = func() string {
 	w := "go@" + Version
 	if len(w) > 64 {
