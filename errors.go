@@ -51,6 +51,15 @@ func (e *PolicyDeniedError) Error() string {
 	return "policy denied: " + reason
 }
 
+// Is lets `errors.Is(err, controlzero.ErrPolicyDenied)` trip on any
+// static deny outcome. HITL deny-class errors (HITLTimeoutError,
+// HITLNoApproverAvailable, HITLIdentityClaimRejected,
+// SecretApprovalRequired) implement the same contract so a single
+// errors.Is check covers every denial path.
+func (e *PolicyDeniedError) Is(target error) bool {
+	return target == ErrPolicyDenied
+}
+
 // PolicyValidationError is returned when a policy file or map fails schema validation.
 type PolicyValidationError struct {
 	Errors []string
