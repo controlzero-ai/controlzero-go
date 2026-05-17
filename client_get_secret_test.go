@@ -642,6 +642,62 @@ func TestGetSecretPollFuncCustomHTTPClient(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
+// gh#587 P2 item 2: per-call Reason override (Python / Node parity).
+// -----------------------------------------------------------------------
+
+func TestGetSecretHITLRequiredReasonOverrideFlowsIntoRequestBody(t *testing.T) {
+	setFakeHomeAndEmail(t, "alice@example.com")
+	var postBody map[string]any
+	srv := secretsServer(t, nil,
+		func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &postBody)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"r","expires_at":"`+futureISO(60)+`"}`)
+		},
+	)
+	setAPIURL(t, srv.URL)
+	c := makeAPIClient(t)
+	defer c.Close()
+
+	customReason := "rotate prod creds"
+	_, err := c.GetSecret(context.Background(), "prod_api_key", GetSecretOpts{
+		SkipGuard: true, Decision: hitlDecision(),
+		Reason: customReason,
+	})
+	if err == nil {
+		t.Fatal("expected SecretApprovalRequired")
+	}
+	if postBody["reason"] != customReason {
+		t.Errorf("reason wire = %v, want %q", postBody["reason"], customReason)
+	}
+}
+
+func TestGetSecretHITLRequiredEmptyReasonFallsBackToDefault(t *testing.T) {
+	setFakeHomeAndEmail(t, "alice@example.com")
+	var postBody map[string]any
+	srv := secretsServer(t, nil,
+		func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &postBody)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"r","expires_at":"`+futureISO(60)+`"}`)
+		},
+	)
+	setAPIURL(t, srv.URL)
+	c := makeAPIClient(t)
+	defer c.Close()
+
+	// Reason omitted -> falls back to the canonical "secret read".
+	_, _ = c.GetSecret(context.Background(), "prod_api_key", GetSecretOpts{
+		SkipGuard: true, Decision: hitlDecision(),
+	})
+	if postBody["reason"] != "secret read" {
+		t.Errorf("default reason = %v, want \"secret read\"", postBody["reason"])
+	}
+}
+
+// -----------------------------------------------------------------------
 // hasHITLReasonCode helper
 // -----------------------------------------------------------------------
 

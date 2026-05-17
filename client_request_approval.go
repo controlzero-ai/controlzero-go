@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -143,16 +144,18 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 
 	idempotencyKey, err := uuidV4()
 	if err != nil {
-		return nil, NewHITLBackendUnreachableError(
-			fmt.Sprintf("could not generate idempotency key: %v", err),
+		return nil, NewHITLBackendUnreachableErrorWithCause(
+			fmt.Sprintf("could not generate idempotency key: %s", err.Error()),
+			err,
 		)
 	}
 
 	url := GetAPIURL() + "/api/approval-requests"
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return nil, NewHITLBackendUnreachableError(
-			fmt.Sprintf("could not marshal request body: %v", err),
+		return nil, NewHITLBackendUnreachableErrorWithCause(
+			fmt.Sprintf("could not marshal request body: %s", err.Error()),
+			err,
 		)
 	}
 
@@ -165,8 +168,9 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
-		return nil, NewHITLBackendUnreachableError(
-			fmt.Sprintf("could not build request: %v", err),
+		return nil, NewHITLBackendUnreachableErrorWithCause(
+			fmt.Sprintf("could not build request: %s", err.Error()),
+			err,
 		)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -180,8 +184,9 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, NewHITLBackendUnreachableError(
-			fmt.Sprintf("POST /api/approval-requests failed: %v", err),
+		return nil, NewHITLBackendUnreachableErrorWithCause(
+			fmt.Sprintf("POST /api/approval-requests failed: %s", err.Error()),
+			err,
 		)
 	}
 	defer resp.Body.Close()
@@ -205,8 +210,9 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 		}
 		deadlineAt, err := parseISO8601UTC(expiresAtRaw)
 		if err != nil {
-			return nil, NewHITLBackendUnreachableError(
-				fmt.Sprintf("POST /api/approval-requests returned unparseable expires_at: %v", err),
+			return nil, NewHITLBackendUnreachableErrorWithCause(
+				fmt.Sprintf("POST /api/approval-requests returned unparseable expires_at: %s", err.Error()),
+				err,
 			)
 		}
 		return NewPendingApprovalRaw(requestID, deadlineAt, idempotencyKey, StatusPending, 1.0)
@@ -263,8 +269,8 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 		return nil, NewHITLNotConfiguredError(msg)
 	}
 	if status == 503 {
-		lower := lowercaseASCII(bodyMsg)
-		if bodyCode == "E1305" || (bodyMsg != "" && containsASCII(lower, "no approver")) {
+		lower := strings.ToLower(bodyMsg)
+		if bodyCode == "E1305" || (bodyMsg != "" && strings.Contains(lower, "no approver")) {
 			msg := bodyMsg
 			if msg == "" {
 				msg = "no HITL approver available"
@@ -304,37 +310,3 @@ func parseISO8601UTC(value string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("could not parse %q as ISO-8601", value)
 }
 
-// lowercaseASCII is a tiny helper for case-insensitive substring checks.
-// Avoids pulling in strings.ToLower for a hot path; ASCII-only is
-// sufficient for the matched literals.
-func lowercaseASCII(s string) string {
-	b := []byte(s)
-	for i := range b {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 32
-		}
-	}
-	return string(b)
-}
-
-// containsASCII is strings.Contains; named for clarity beside
-// lowercaseASCII.
-func containsASCII(haystack, needle string) bool {
-	return bytesIndex(haystack, needle) >= 0
-}
-
-func bytesIndex(haystack, needle string) int {
-	hl, nl := len(haystack), len(needle)
-	if nl == 0 {
-		return 0
-	}
-	if nl > hl {
-		return -1
-	}
-	for i := 0; i <= hl-nl; i++ {
-		if haystack[i:i+nl] == needle {
-			return i
-		}
-	}
-	return -1
-}

@@ -5,7 +5,9 @@
 package controlzero
 
 import (
+	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +270,94 @@ func TestStaticPolicyDeniedErrorMatchesUmbrellaSentinel(t *testing.T) {
 	err := &PolicyDeniedError{Decision: PolicyDecision{Effect: "deny", Reason: "test"}}
 	if !errors.Is(err, ErrPolicyDenied) {
 		t.Errorf("PolicyDeniedError must satisfy errors.Is(err, ErrPolicyDenied)")
+	}
+}
+
+// -----------------------------------------------------------------------
+// gh#587 P2 item 1: HITLBackendUnreachableError preserves the unwrap
+// chain when constructed with a cause. Callers can errors.Is against
+// stdlib sentinels (context.DeadlineExceeded) and errors.As against
+// concrete transport types (*net.OpError) without parsing the human
+// message.
+// -----------------------------------------------------------------------
+
+func TestHITLBackendUnreachableErrorWrapsDeadlineExceeded(t *testing.T) {
+	wrapped := NewHITLBackendUnreachableErrorWithCause(
+		"POST /api/approval-requests failed: context deadline exceeded",
+		context.DeadlineExceeded,
+	)
+	// errors.Is must walk past the HITL wrapper to the sentinel.
+	if !errors.Is(wrapped, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(wrapped, context.DeadlineExceeded) must be true; " +
+			"unwrap chain is broken")
+	}
+	// The HITL-layer sentinel contract must still hold.
+	if !errors.Is(wrapped, ErrHostedBootstrap) {
+		t.Errorf("errors.Is(wrapped, ErrHostedBootstrap) must remain true " +
+			"alongside the cause sentinel")
+	}
+	// Direct unwrap should also expose the cause.
+	if u := errors.Unwrap(wrapped); u != context.DeadlineExceeded {
+		t.Errorf("errors.Unwrap = %v, want context.DeadlineExceeded", u)
+	}
+}
+
+func TestHITLBackendUnreachableErrorAsExtractsNetOpError(t *testing.T) {
+	netErr := &net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: errors.New("connection refused"),
+	}
+	wrapped := NewHITLBackendUnreachableErrorWithCause(
+		"POST /api/approval-requests failed: dial tcp: connection refused",
+		netErr,
+	)
+	var got *net.OpError
+	if !errors.As(wrapped, &got) {
+		t.Fatalf("errors.As must extract *net.OpError from the unwrap chain")
+	}
+	if got != netErr {
+		t.Errorf("errors.As returned %p, want original %p", got, netErr)
+	}
+	// And the outer wrapper type still extracts too, so callers that
+	// want either layer can pick.
+	var bu *HITLBackendUnreachableError
+	if !errors.As(wrapped, &bu) {
+		t.Fatalf("errors.As must still extract *HITLBackendUnreachableError")
+	}
+	if bu.Cause != netErr {
+		t.Errorf("Cause pointer must round-trip")
+	}
+}
+
+func TestHITLBackendUnreachableErrorWithoutCauseHasNilUnwrap(t *testing.T) {
+	// The legacy string-only constructor must continue to produce an
+	// error with no Cause -- so existing call sites that have no
+	// underlying error keep working unchanged and errors.Unwrap is
+	// nil (not "fake-wrapped").
+	plain := NewHITLBackendUnreachableError("plain diagnostic")
+	if plain.Cause != nil {
+		t.Errorf("Cause must default to nil, got %v", plain.Cause)
+	}
+	if u := errors.Unwrap(plain); u != nil {
+		t.Errorf("errors.Unwrap of cause-less error must be nil, got %v", u)
+	}
+	// The sentinel contract must still hold for the bare form.
+	if !errors.Is(plain, ErrHostedBootstrap) {
+		t.Errorf("errors.Is(plain, ErrHostedBootstrap) must remain true")
+	}
+	// And the human message must round-trip.
+	if !strings.Contains(plain.Error(), "plain diagnostic") {
+		t.Errorf("message must round-trip, got %q", plain.Error())
+	}
+}
+
+func TestHITLBackendUnreachableErrorWithCauseEmptyMessageFallsBack(t *testing.T) {
+	wrapped := NewHITLBackendUnreachableErrorWithCause("", context.Canceled)
+	if !strings.Contains(wrapped.Error(), "HITL backend unreachable") {
+		t.Errorf("empty msg must fall back to default, got %q", wrapped.Error())
+	}
+	if !errors.Is(wrapped, context.Canceled) {
+		t.Errorf("errors.Is(wrapped, context.Canceled) must be true")
 	}
 }

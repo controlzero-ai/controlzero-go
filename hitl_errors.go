@@ -117,8 +117,20 @@ func (e *HITLTimeoutError) Is(target error) bool {
 
 // HITLBackendUnreachableError: E1702. POST /api/approval-requests
 // failed. errors.Is(err, ErrHostedBootstrap) returns true.
+//
+// Cause is the optional underlying error (e.g. *net.OpError or
+// context.DeadlineExceeded) that triggered the unreachable condition.
+// When non-nil, Unwrap exposes it so callers can write
+// `errors.Is(err, context.DeadlineExceeded)` or
+// `errors.As(err, &netErr)` and observe the original transport-layer
+// failure without parsing the human message. Sites that only have a
+// human diagnostic should keep using NewHITLBackendUnreachableError;
+// sites that have an underlying error should use
+// NewHITLBackendUnreachableErrorWithCause to preserve the unwrap
+// chain.
 type HITLBackendUnreachableError struct {
 	Message string
+	Cause   error
 }
 
 func NewHITLBackendUnreachableError(msg string) *HITLBackendUnreachableError {
@@ -126,6 +138,18 @@ func NewHITLBackendUnreachableError(msg string) *HITLBackendUnreachableError {
 		msg = "HITL backend unreachable"
 	}
 	return &HITLBackendUnreachableError{Message: msg}
+}
+
+// NewHITLBackendUnreachableErrorWithCause is the cause-preserving
+// constructor. msg is the human-readable diagnostic (same format as
+// NewHITLBackendUnreachableError); cause is the underlying error
+// returned by Unwrap so callers can `errors.Is` / `errors.As` against
+// stdlib sentinels (e.g. context.DeadlineExceeded, *net.OpError).
+func NewHITLBackendUnreachableErrorWithCause(msg string, cause error) *HITLBackendUnreachableError {
+	if msg == "" {
+		msg = "HITL backend unreachable"
+	}
+	return &HITLBackendUnreachableError{Message: msg, Cause: cause}
 }
 
 func (e *HITLBackendUnreachableError) Error() string {
@@ -137,6 +161,11 @@ func (e *HITLBackendUnreachableError) ECode() string { return ECodeHITLBackendUn
 func (e *HITLBackendUnreachableError) Is(target error) bool {
 	return target == ErrHostedBootstrap
 }
+
+// Unwrap exposes the optional underlying cause so errors.Is /
+// errors.As can walk past the HITL wrapper to the transport-layer
+// error.
+func (e *HITLBackendUnreachableError) Unwrap() error { return e.Cause }
 
 // HITLPolicyVersionConflictError: E1703.
 type HITLPolicyVersionConflictError struct {

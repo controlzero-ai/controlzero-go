@@ -53,6 +53,15 @@ type GetSecretOpts struct {
 	// alongside Decision to mock the gate path deterministically.
 	// Production callers should always leave this false.
 	SkipGuard bool
+
+	// Reason overrides the human-readable message attached to the
+	// HITL approval request (the "reason" wire field). Empty falls
+	// back to the default "secret read" message. Mirrors Python /
+	// Node `reason` opt. The string is sent verbatim to the approver
+	// UI; keep it short and low-entropy because the secret-leak
+	// guard inside RequestApproval rejects any 24+ char string with
+	// > 3.5 bits/char entropy.
+	Reason string
 }
 
 // GetSecret fetches a secret value by name, after gating on policy.
@@ -91,9 +100,15 @@ func (c *Client) GetSecret(ctx context.Context, name string, opts GetSecretOpts)
 		// secret-leak guard inside RequestApproval runs the message
 		// through IsLikelySecretValue, and any 24+ char string with
 		// > 3.5 bits/char entropy trips it. Concatenating the secret
-		// name would trip that bar on realistic names.
+		// name would trip that bar on realistic names. Caller can
+		// override via opts.Reason to supply their own short, safe
+		// human message; empty falls back to the canonical default.
+		reason := opts.Reason
+		if reason == "" {
+			reason = "secret read"
+		}
 		pending, err := c.RequestApproval(ctx, decision, RequestApprovalOpts{
-			Message:  "secret read",
+			Message:  reason,
 			TimeoutS: opts.TimeoutS,
 			Context: HITLApprovalContext{
 				CanonicalAction: "Secrets:read",
@@ -134,8 +149,9 @@ func (c *Client) GetSecret(ctx context.Context, name string, opts GetSecretOpts)
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", NewHITLBackendUnreachableError(
-			fmt.Sprintf("could not build request: %v", err),
+		return "", NewHITLBackendUnreachableErrorWithCause(
+			fmt.Sprintf("could not build request: %s", err.Error()),
+			err,
 		)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -147,8 +163,9 @@ func (c *Client) GetSecret(ctx context.Context, name string, opts GetSecretOpts)
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", NewHITLBackendUnreachableError(
-			fmt.Sprintf("GET /api/secrets/%s failed: %v", name, err),
+		return "", NewHITLBackendUnreachableErrorWithCause(
+			fmt.Sprintf("GET /api/secrets/%s failed: %s", name, err.Error()),
+			err,
 		)
 	}
 	defer resp.Body.Close()
@@ -235,16 +252,18 @@ func (c *Client) GetSecretPollFunc(requestID string, httpClient *http.Client) (P
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return nil, NewHITLBackendUnreachableError(
-				fmt.Sprintf("could not build request: %v", err),
+			return nil, NewHITLBackendUnreachableErrorWithCause(
+				fmt.Sprintf("could not build request: %s", err.Error()),
+				err,
 			)
 		}
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		req.Header.Set("Accept", "application/json")
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, NewHITLBackendUnreachableError(
-				fmt.Sprintf("GET /api/approval-requests/%s failed: %v", requestID, err),
+			return nil, NewHITLBackendUnreachableErrorWithCause(
+				fmt.Sprintf("GET /api/approval-requests/%s failed: %s", requestID, err.Error()),
+				err,
 			)
 		}
 		defer resp.Body.Close()
