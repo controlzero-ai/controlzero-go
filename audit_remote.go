@@ -25,9 +25,12 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // newUUID returns a random hex 32-char string. Good enough to identify
@@ -36,6 +39,36 @@ func newUUID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
+}
+
+// readEmailFromConfig reads the operator email persisted by
+// `controlzero install <agent> --email <addr>` (Python or Node CLI)
+// from ~/.controlzero/config.yaml. Re-read on each batch so a fresh
+// install with a different email takes effect without restarting the
+// host process. Missing config or unreadable file = empty string,
+// which the backend identity resolver treats as anonymous (existing
+// pre-HITL behaviour, preserved for backward compat).
+//
+// HITL-5d (gh#537). Go SDK does not have its own install CLI yet --
+// operators install via Python or Node and Go reads the shared
+// config.
+func readEmailFromConfig() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	cfgPath := filepath.Join(home, ".controlzero", "config.yaml")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return ""
+	}
+	var parsed struct {
+		Email string `yaml:"email"`
+	}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		return ""
+	}
+	return parsed.Email
 }
 
 const (
@@ -178,6 +211,12 @@ func (s *BearerAuditSink) postBatch(batch []map[string]any) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	// HITL-5d: optional operator identity header. Server-side resolver
+	// maps email -> user_id and stamps it on every audit row, so HITL
+	// approvals can attribute a shared API key to the right human.
+	if email := readEmailFromConfig(); email != "" {
+		req.Header.Set("X-CZ-Requestor-Email", email)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
