@@ -177,3 +177,46 @@ func (e *BundleFormatError) Error() string { return "controlzero: " + e.Msg }
 type BundleSignatureError struct{ Msg string }
 
 func (e *BundleSignatureError) Error() string { return "controlzero: " + e.Msg }
+
+// --- Multi-client + per-project selectors (#175 / #602 follow-up) ---------
+//
+// gh#602 ships the min_sdk_version gate that pairs with the rule
+// selectors introduced in PR #601. Bundles that include any rule with
+// `clients:` / `projects:` selectors carry `metadata.min_sdk_version`;
+// the Go SDK compares this against `controlzero.Version` at load time
+// and returns BundleRequiresNewerSDKError when the SDK is older.
+
+// ECodeBundleRequiresNewerSDK is the stable E#### code emitted on
+// every BundleRequiresNewerSDKError. Mirrors the Python + Node
+// catalog so customers see the same docs URL regardless of which
+// SDK they tripped the gate on.
+const ECodeBundleRequiresNewerSDK = "E1712"
+
+// BundleRequiresNewerSDKError is returned when the hosted policy
+// bundle's metadata.min_sdk_version declares a higher SDK floor than
+// the SDK shipping in this binary. The bundle uses post-#175 rule
+// selectors (clients / projects) this SDK does not understand;
+// loading it would silently treat the selectors as wildcards
+// (over-block every unselected agent), so the SDK refuses the bundle
+// instead.
+//
+// Required / Actual / UpgradeCommand together give the customer
+// everything they need to self-serve the upgrade without filing
+// support. Per gh#602 hard limit on the error contract.
+type BundleRequiresNewerSDKError struct {
+	Required        string
+	Actual          string
+	UpgradeCommand  string
+}
+
+func (e *BundleRequiresNewerSDKError) Error() string {
+	return fmt.Sprintf(
+		"controlzero: bundle requires controlzero SDK >= %s; this SDK is %s. Upgrade with: %s.",
+		e.Required, e.Actual, e.UpgradeCommand,
+	)
+}
+
+// ECode returns the stable E#### code for this error. Callers that
+// want to branch on the error class without an errors.As dance can
+// read this field directly.
+func (e *BundleRequiresNewerSDKError) ECode() string { return ECodeBundleRequiresNewerSDK }

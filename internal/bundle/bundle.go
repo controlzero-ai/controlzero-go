@@ -245,6 +245,166 @@ func zstdDecompress(data []byte) ([]byte, error) {
 	return out, nil
 }
 
+// --- Version gate (gh#602) -------------------------------------------------
+
+// versionTuple is the cross-SDK comparable shape produced by
+// parseVersionTuple. Layout matches the Python + Node parsers:
+//
+//	major, minor, patch, releaseSentinel, suffix
+//
+// releaseSentinel is 1 for a clean release ("1.5.8") and 0 for a
+// prerelease ("1.5.5a1") so the prerelease sorts BELOW the matching
+// release at the same numeric triple. Comparison is element-wise.
+type versionTuple struct {
+	major, minor, patch, releaseSentinel int
+	suffix                               string
+}
+
+func less(a, b versionTuple) bool {
+	switch {
+	case a.major != b.major:
+		return a.major < b.major
+	case a.minor != b.minor:
+		return a.minor < b.minor
+	case a.patch != b.patch:
+		return a.patch < b.patch
+	case a.releaseSentinel != b.releaseSentinel:
+		return a.releaseSentinel < b.releaseSentinel
+	default:
+		return a.suffix < b.suffix
+	}
+}
+
+// ParseVersionTuple parses a SemVer-ish version string into a
+// versionTuple. Stdlib only; no semver / golang.org/x/mod dep on
+// the bundle-load hot path.
+//
+// Handles the three forms we ship across SDKs:
+//
+//	"1.5.8"   -> {1, 5, 8, 1, ""}    (release sentinel = 1)
+//	"v1.7.6"  -> {1, 7, 6, 1, ""}    (Go SDK tag prefix)
+//	"1.5.5a1" -> {1, 5, 5, 0, "a1"}  (PEP 440 prerelease)
+//
+// Mirrors the Python + Node parsers byte-for-byte so a floor stamped
+// by the backend gets the same verdict in every SDK.
+func ParseVersionTuple(v string) versionTuple {
+	var vt versionTuple
+	if v == "" {
+		vt.releaseSentinel = 1
+		return vt
+	}
+	if v[0] == 'v' || v[0] == 'V' {
+		v = v[1:]
+	}
+	nums := []int{0, 0, 0}
+	suffix := ""
+	idx := 0
+	cur := ""
+	collecting := true
+	for i := 0; i < len(v) && idx < 3; i++ {
+		ch := v[i]
+		if ch == '.' {
+			if cur != "" {
+				if n, err := parseIntSafe(cur); err == nil {
+					nums[idx] = n
+				}
+				cur = ""
+			}
+			idx++
+			continue
+		}
+		if ch >= '0' && ch <= '9' {
+			if collecting {
+				cur += string(ch)
+			}
+		} else {
+			// Non-numeric tail on the CURRENT segment: capture as
+			// suffix, then stop reading further segments (a suffix
+			// on a non-final segment is malformed; treat the rest
+			// as absent).
+			if cur != "" {
+				if n, err := parseIntSafe(cur); err == nil {
+					nums[idx] = n
+				}
+			}
+			suffix = v[i:]
+			collecting = false
+			break
+		}
+	}
+	if cur != "" && collecting {
+		if n, err := parseIntSafe(cur); err == nil {
+			nums[idx] = n
+		}
+	}
+	vt.major = nums[0]
+	vt.minor = nums[1]
+	vt.patch = nums[2]
+	if suffix != "" {
+		vt.releaseSentinel = 0
+		vt.suffix = suffix
+	} else {
+		vt.releaseSentinel = 1
+	}
+	return vt
+}
+
+// parseIntSafe is a thin wrapper that never panics. Returns 0 on
+// any parse error; the caller treats malformed numeric segments as
+// "unknown" = 0.
+func parseIntSafe(s string) (int, error) {
+	n := 0
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return 0, fmt.Errorf("non-digit %q in %q", ch, s)
+		}
+		n = n*10 + int(ch-'0')
+	}
+	return n, nil
+}
+
+// MinSDKResult is the structured outcome of CheckMinSDKVersion. The
+// caller in hosted_policy.go inspects the Refuse flag and wraps the
+// required/actual fields into a controlzero.BundleRequiresNewerSDKError
+// at the package boundary. Keeping the internal API result-shaped
+// (rather than returning the error directly) avoids importing the
+// public controlzero package from the internal subpackage, which
+// would create an import cycle.
+type MinSDKResult struct {
+	Refuse   bool
+	Required string
+	Actual   string
+}
+
+// CheckMinSDKVersion inspects payload["metadata"]["min_sdk_version"]
+// and returns a MinSDKResult{Refuse: true, ...} when the bundle's
+// floor exceeds sdkVersion. Bundles without the field return
+// MinSDKResult{Refuse: false} (back-compat: every pre-#602 bundle).
+//
+// Pure function; no I/O.
+func CheckMinSDKVersion(payload map[string]any, sdkVersion string) MinSDKResult {
+	metaAny, ok := payload["metadata"]
+	if !ok {
+		return MinSDKResult{}
+	}
+	meta, ok := metaAny.(map[string]any)
+	if !ok {
+		return MinSDKResult{}
+	}
+	reqAny, ok := meta["min_sdk_version"]
+	if !ok {
+		return MinSDKResult{}
+	}
+	required, ok := reqAny.(string)
+	if !ok || required == "" {
+		return MinSDKResult{}
+	}
+	if !less(ParseVersionTuple(sdkVersion), ParseVersionTuple(required)) {
+		return MinSDKResult{}
+	}
+	return MinSDKResult{Refuse: true, Required: required, Actual: sdkVersion}
+}
+
 // TranslateToLocalPolicy converts a decrypted bundle payload to the
 // local-mode policy map accepted by LoadPolicy. Sorts policies by
 // `priority` ascending so every SDK produces identical decisions from

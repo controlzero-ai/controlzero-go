@@ -460,6 +460,17 @@ func loadHostedPolicy(ctx context.Context, apiKey, apiURL string) (map[string]an
 
 	_ = saveCachedBundle(apiKey, blob, etag)
 
+	// gh#602: gate on bundle.metadata.min_sdk_version BEFORE
+	// translation so a stale SDK can never start applying selector
+	// rules it does not understand.
+	if r := bundle.CheckMinSDKVersion(parsed.Payload, Version); r.Refuse {
+		return nil, nil, &BundleRequiresNewerSDKError{
+			Required:       r.Required,
+			Actual:         r.Actual,
+			UpgradeCommand: "go get github.com/control-zero/controlzero@latest",
+		}
+	}
+
 	return bundle.TranslateToLocalPolicy(parsed.Payload), parsed, nil
 }
 
@@ -478,6 +489,14 @@ func parseAndTranslate(
 			&bundle.ParseOptions{MaxBundleBytes: maxBundleBytes})
 		if err != nil {
 			return nil, nil, wrapBundleErr(err)
+		}
+	}
+	// gh#602: cached / 304-served bundles get the same gate.
+	if r := bundle.CheckMinSDKVersion(parsed.Payload, Version); r.Refuse {
+		return nil, nil, &BundleRequiresNewerSDKError{
+			Required:       r.Required,
+			Actual:         r.Actual,
+			UpgradeCommand: "go get github.com/control-zero/controlzero@latest",
 		}
 	}
 	return bundle.TranslateToLocalPolicy(parsed.Payload), parsed, nil
