@@ -236,21 +236,21 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 	if status == 400 && bodyCode == "E1307" {
 		msg := bodyMsg
 		if msg == "" {
-			msg = "HITL requires X-CZ-Requestor-Email"
+			msg = "Approvals require X-CZ-Requestor-Email"
 		}
 		return nil, NewHITLIdentityRequired(msg)
 	}
 	if status == 400 && bodyCode == "E1306" {
 		msg := bodyMsg
 		if msg == "" {
-			msg = "HITL identity is not a member of this org"
+			msg = "Requestor identity is not a member of this org"
 		}
 		return nil, NewHITLIdentityNotInOrg(msg)
 	}
 	if status == 400 && bodyCode == "E1308" {
 		msg := bodyMsg
 		if msg == "" {
-			msg = "HITL identity claim rejected by backend"
+			msg = "Requestor identity claim rejected by backend"
 		}
 		return nil, NewHITLIdentityClaimRejected(msg)
 	}
@@ -264,7 +264,7 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 	if status == 404 {
 		msg := bodyMsg
 		if msg == "" {
-			msg = "HITL not configured for this org"
+			msg = "Approvals not configured for this org"
 		}
 		return nil, NewHITLNotConfiguredError(msg)
 	}
@@ -273,7 +273,7 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 		if bodyCode == "E1305" || (bodyMsg != "" && strings.Contains(lower, "no approver")) {
 			msg := bodyMsg
 			if msg == "" {
-				msg = "no HITL approver available"
+				msg = "no approver available"
 			}
 			return nil, NewHITLNoApproverAvailable(msg)
 		}

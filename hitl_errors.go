@@ -135,7 +135,7 @@ type HITLBackendUnreachableError struct {
 
 func NewHITLBackendUnreachableError(msg string) *HITLBackendUnreachableError {
 	if msg == "" {
-		msg = "HITL backend unreachable"
+		msg = "Approval backend unreachable"
 	}
 	return &HITLBackendUnreachableError{Message: msg}
 }
@@ -147,7 +147,7 @@ func NewHITLBackendUnreachableError(msg string) *HITLBackendUnreachableError {
 // stdlib sentinels (e.g. context.DeadlineExceeded, *net.OpError).
 func NewHITLBackendUnreachableErrorWithCause(msg string, cause error) *HITLBackendUnreachableError {
 	if msg == "" {
-		msg = "HITL backend unreachable"
+		msg = "Approval backend unreachable"
 	}
 	return &HITLBackendUnreachableError{Message: msg, Cause: cause}
 }
@@ -174,7 +174,7 @@ type HITLPolicyVersionConflictError struct {
 
 func NewHITLPolicyVersionConflictError(msg string) *HITLPolicyVersionConflictError {
 	if msg == "" {
-		msg = "HITL policy version conflict"
+		msg = "Approval policy version conflict"
 	}
 	return &HITLPolicyVersionConflictError{Message: msg}
 }
@@ -199,7 +199,7 @@ type HITLNotConfiguredError struct {
 
 func NewHITLNotConfiguredError(msg string) *HITLNotConfiguredError {
 	if msg == "" {
-		msg = "HITL not configured for this org"
+		msg = "Approvals not configured for this org"
 	}
 	return &HITLNotConfiguredError{Message: msg}
 }
@@ -217,7 +217,7 @@ type HITLNoApproverAvailable struct {
 
 func NewHITLNoApproverAvailable(msg string) *HITLNoApproverAvailable {
 	if msg == "" {
-		msg = "no HITL approver available"
+		msg = "no approver available"
 	}
 	return &HITLNoApproverAvailable{Message: msg}
 }
@@ -239,7 +239,7 @@ type HITLIdentityNotInOrg struct {
 
 func NewHITLIdentityNotInOrg(msg string) *HITLIdentityNotInOrg {
 	if msg == "" {
-		msg = "HITL identity is not a member of this org"
+		msg = "Requestor identity is not a member of this org"
 	}
 	return &HITLIdentityNotInOrg{Message: msg}
 }
@@ -257,7 +257,7 @@ type HITLIdentityRequired struct {
 
 func NewHITLIdentityRequired(msg string) *HITLIdentityRequired {
 	if msg == "" {
-		msg = "HITL requires X-CZ-Requestor-Email"
+		msg = "Approvals require X-CZ-Requestor-Email"
 	}
 	return &HITLIdentityRequired{Message: msg}
 }
@@ -275,7 +275,7 @@ type HITLIdentityClaimRejected struct {
 
 func NewHITLIdentityClaimRejected(msg string) *HITLIdentityClaimRejected {
 	if msg == "" {
-		msg = "HITL identity claim rejected by backend"
+		msg = "Requestor identity claim rejected by backend"
 	}
 	return &HITLIdentityClaimRejected{Message: msg}
 }
@@ -322,7 +322,7 @@ type SecretApprovalRequired struct {
 
 func NewSecretApprovalRequired(msg string, pending *PendingApproval) *SecretApprovalRequired {
 	if msg == "" {
-		msg = "secret access requires HITL approval"
+		msg = "secret access requires approval"
 	}
 	return &SecretApprovalRequired{Message: msg, Pending: pending}
 }

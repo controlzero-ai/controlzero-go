@@ -354,7 +354,7 @@ func TestHITLBackendUnreachableErrorWithoutCauseHasNilUnwrap(t *testing.T) {
 
 func TestHITLBackendUnreachableErrorWithCauseEmptyMessageFallsBack(t *testing.T) {
 	wrapped := NewHITLBackendUnreachableErrorWithCause("", context.Canceled)
-	if !strings.Contains(wrapped.Error(), "HITL backend unreachable") {
+	if !strings.Contains(wrapped.Error(), "Approval backend unreachable") {
 		t.Errorf("empty msg must fall back to default, got %q", wrapped.Error())
 	}
 	if !errors.Is(wrapped, context.Canceled) {
