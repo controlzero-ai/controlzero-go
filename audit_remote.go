@@ -259,6 +259,13 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 		"client_name":    detectClientName(),
 		"client_version": detectClientVersion(),
 		"user_email":     "",
+		// Phase 1A (cua rig v2, #450). SHA-256 over RFC 8785 canonical
+		// bytes of args. Same input -> identical hash across all 3
+		// SDKs. Backend accepts missing/empty (additive only).
+		"args_hash": strOrEmpty(entry["args_hash"]),
+		// Phase 1B (#451). Engine version that produced the decision.
+		// Lets audit consumers detect stale SDK installs.
+		"policy_engine_version": strOrEmpty(entry["policy_engine_version"]),
 		// #495 / v1 (2026-05-14): normalised controlzero SDK package
 		// version on the wire as "go@v1.7.2". Distinct from
 		// client_version which carries the host CLI version. See

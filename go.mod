@@ -5,6 +5,7 @@ go 1.24.4
 toolchain go1.24.13
 
 require (
+	github.com/gowebpki/jcs v1.0.1
 	github.com/klauspost/compress v1.18.0
 	github.com/spf13/cobra v1.8.0
 	github.com/tmc/langchaingo v0.1.14

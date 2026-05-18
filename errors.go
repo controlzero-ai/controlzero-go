@@ -26,7 +26,31 @@ type PolicyDecision struct {
 	Reason         string
 	ReasonCode     string
 	EvaluatedRules int
+	// Phase 1B (#451). Engine version that produced this decision.
+	// Stamped on every PolicyDecision returned by the SDK. The audit
+	// pipeline mirrors the same value onto the audit row, so a stale
+	// SDK install shows up as a row whose engine bytes lag the live
+	// backend.
+	PolicyEngineVersion string
 }
+
+// PolicyEngineVersion is the version of the policy engine the SDK is
+// wired to. Kept in lockstep with crates/Cargo.toml workspace.package
+// version. When the WASM engine ships in Phase 8 this becomes
+// runtime-derived from the loaded engine bundle. Mirrors
+// POLICY_ENGINE_VERSION in the Python SDK and the
+// POLICY_ENGINE_VERSION export in the Node SDK.
+//
+// Drift CI: scripts/ci/check-engine-version-drift.sh asserts this
+// literal matches the Rust workspace version on every CI run.
+//
+// Naming note: shares the bare name with PolicyDecision.PolicyEngineVersion.
+// Inside the package this is unambiguous (Go resolves field name vs
+// package-level identifier by syntactic position). Renaming the field
+// would be a breaking API change; renaming the constant to anything
+// other than the field name re-introduces the Python/Node mismatch
+// reviewers complained about.
+const PolicyEngineVersion = "0.1.0"
 
 // Decision returns Effect. Reads more naturally in user code.
 func (d PolicyDecision) Decision() string { return d.Effect }

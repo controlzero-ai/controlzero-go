@@ -170,11 +170,12 @@ func (e *PolicyEvaluator) Evaluate(tool, method string, ctx *EvalContext) Policy
 			rc = ReasonCodeRuleMatch
 		}
 		return PolicyDecision{
-			Effect:         rule.Effect,
-			PolicyID:       id,
-			Reason:         reason,
-			ReasonCode:     rc,
-			EvaluatedRules: evaluated,
+			Effect:              rule.Effect,
+			PolicyID:            id,
+			Reason:              reason,
+			ReasonCode:          rc,
+			EvaluatedRules:      evaluated,
+			PolicyEngineVersion: PolicyEngineVersion,
 		}
 	}
 
@@ -208,11 +209,12 @@ func (e *PolicyEvaluator) Evaluate(tool, method string, ctx *EvalContext) Policy
 	}
 
 	return PolicyDecision{
-		Effect:         effect,
-		PolicyID:       syntheticID,
-		Reason:         reason,
-		ReasonCode:     ReasonCodeNoRuleMatch,
-		EvaluatedRules: evaluated,
+		Effect:              effect,
+		PolicyID:            syntheticID,
+		Reason:              reason,
+		ReasonCode:          ReasonCodeNoRuleMatch,
+		EvaluatedRules:      evaluated,
+		PolicyEngineVersion: PolicyEngineVersion,
 	}
 }
 

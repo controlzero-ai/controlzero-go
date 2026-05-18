@@ -353,7 +353,8 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 			PolicyID: SyntheticPolicyIDQuarantine,
 			Reason: "Machine quarantined: policy tampering detected. " +
 				"Run 'controlzero enroll' or 'controlzero policy-pull' to recover.",
-			ReasonCode: ReasonCodeMachineQuarantined,
+			ReasonCode:          ReasonCodeMachineQuarantined,
+			PolicyEngineVersion: PolicyEngineVersion,
 		}
 		c.auditDecision(tool, method, opts.Args, decision)
 		if opts.RaiseOnDeny {
@@ -375,10 +376,11 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 				// dashboard can tell evaluator-crash denies apart from
 				// rule-driven denies.
 				decision = PolicyDecision{
-					Effect:     "deny",
-					PolicyID:   SyntheticPolicyIDEngineUnavail,
-					Reason:     fmt.Sprintf("Evaluator panic: %v. Failing closed.", r),
-					ReasonCode: ReasonCodeNoRuleMatch,
+					Effect:              "deny",
+					PolicyID:            SyntheticPolicyIDEngineUnavail,
+					Reason:              fmt.Sprintf("Evaluator panic: %v. Failing closed.", r),
+					ReasonCode:          ReasonCodeNoRuleMatch,
+					PolicyEngineVersion: PolicyEngineVersion,
 				}
 			}
 		}()
@@ -394,11 +396,12 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 			dlpMatches := c.dlpScanner.Scan(argsText)
 			if HasBlockingMatch(dlpMatches) {
 				decision = PolicyDecision{
-					Effect:         "deny",
-					PolicyID:       decision.PolicyID,
-					Reason:         "DLP blocking match found in tool arguments",
-					ReasonCode:     ReasonCodeDLPBlocked,
-					EvaluatedRules: decision.EvaluatedRules,
+					Effect:              "deny",
+					PolicyID:            decision.PolicyID,
+					Reason:              "DLP blocking match found in tool arguments",
+					ReasonCode:          ReasonCodeDLPBlocked,
+					EvaluatedRules:      decision.EvaluatedRules,
+					PolicyEngineVersion: PolicyEngineVersion,
 				}
 			}
 		}
@@ -532,9 +535,10 @@ func (c *Client) noopDecision() PolicyDecision {
 	}
 	warnMu.Unlock()
 	return PolicyDecision{
-		Effect:   "allow",
-		PolicyID: "<noop>",
-		Reason:   "No policy configured (pass-through)",
+		Effect:              "allow",
+		PolicyID:            "<noop>",
+		Reason:              "No policy configured (pass-through)",
+		PolicyEngineVersion: PolicyEngineVersion,
 	}
 }
 
@@ -545,16 +549,34 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 	}
 	sort.Strings(keys)
 
+	// Phase 1A (cua rig v2, issue #450): args_hash is a stable
+	// SHA-256 over RFC 8785 (JCS) canonical bytes of args. Same input
+	// -> identical hash across Python/Node/Go SDKs. Best-effort: on
+	// canonicalisation error the field is left empty (older SDK
+	// versions on the backend treat missing/empty as legacy).
+	argsHashValue := ArgsHash(args)
+
+	// Phase 1B (#451): engine version stamped on every audit row from
+	// the canonical constant. Independent of whether the caller
+	// populated PolicyDecision.PolicyEngineVersion -- the audit row
+	// always reflects which engine bytes are loaded in this SDK.
+	engineVersion := decision.PolicyEngineVersion
+	if engineVersion == "" {
+		engineVersion = PolicyEngineVersion
+	}
+
 	entry := map[string]any{
-		"decision":    decision.Effect,
-		"tool":        tool,
-		"method":      method,
-		"policy_id":   decision.PolicyID,
-		"reason":      decision.Reason,
-		"reason_code": decision.ReasonCode,
-		"surface":     "go-sdk",
-		"args_keys":   keys,
-		"mode":        "local",
+		"decision":              decision.Effect,
+		"tool":                  tool,
+		"method":                method,
+		"policy_id":             decision.PolicyID,
+		"reason":                decision.Reason,
+		"reason_code":           decision.ReasonCode,
+		"surface":               "go-sdk",
+		"args_keys":             keys,
+		"args_hash":             argsHashValue,
+		"policy_engine_version": engineVersion,
+		"mode":                  "local",
 	}
 
 	if c.audit != nil {

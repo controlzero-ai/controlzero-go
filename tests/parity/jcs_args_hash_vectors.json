@@ -1,0 +1,111 @@
+{
+  "_comment": "Cross-SDK JCS args_hash parity fixture. Each entry is an input dict and the EXPECTED sha256 hex over the RFC 8785 canonical bytes. All three SDKs (Python, Node, Go) MUST produce byte-identical hashes for every entry. Drift here is the regression signal for Tier C audit-wire conformance. To regenerate after intentional change, run scripts/parity/regenerate_jcs_vectors.py and review the diff in PR.",
+  "spec": "RFC 8785 (JSON Canonicalization Scheme)",
+  "spec_url": "https://www.rfc-editor.org/rfc/rfc8785",
+  "hash": "sha256 of canonical bytes; expected_hex is the hex digest",
+  "vectors": [
+    {
+      "name": "empty_object",
+      "input": {},
+      "expected_hex": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "single_string",
+      "input": {
+        "command": "rm -rf /tmp/x"
+      },
+      "expected_hex": "5112e679ae51d6954ce4260da4302c76b6267cb9c7e41fa02d04219a256fd555"
+    },
+    {
+      "name": "key_order_normalisation",
+      "input": {
+        "z": 1,
+        "a": 2,
+        "m": 3
+      },
+      "expected_hex": "ebba85cfdc0a724b6cc327ecc545faeb38b9fe02eca603b430eb872f5cf75370"
+    },
+    {
+      "name": "unicode_value",
+      "input": {
+        "name": "café",
+        "emoji": "ねこ"
+      },
+      "expected_hex": "be0a14530fc7210b4635c61a41e13ac452894c4d6a5515387df881109f8108eb"
+    },
+    {
+      "name": "nested_dict",
+      "input": {
+        "outer": {
+          "inner": {
+            "deep": [1, 2, 3]
+          }
+        }
+      },
+      "expected_hex": "72496b03dc421180fa4332b5c35913eefe1a031a818369951496e60297bdc67b"
+    },
+    {
+      "name": "number_normalisation",
+      "input": {
+        "int_val": 1,
+        "float_val": 1.0,
+        "neg": -1,
+        "zero": 0
+      },
+      "expected_hex": "011635fcfec4a44e7ccf1adac4dac5e800848f5e4cd45a58dbe4c95bb53425c1"
+    },
+    {
+      "name": "boolean_and_null",
+      "input": {
+        "flag": true,
+        "off": false,
+        "nothing": null
+      },
+      "expected_hex": "b28f5832fce09cc6034bf66dc5f981106cdfefd4be1cabba2ff8176fa3ec2d65"
+    },
+    {
+      "name": "array_preservation",
+      "input": {
+        "items": [3, 1, 2],
+        "tags": ["alpha", "beta"]
+      },
+      "expected_hex": "3347dc282bc09a3ad614d7f6fd23634fcbda9e326ace94da67b981cdd589fda8"
+    },
+    {
+      "name": "empty_string_keys_and_values",
+      "input": {
+        "": "empty_key",
+        "k": ""
+      },
+      "expected_hex": "be65fb06c64abe702800d9aae4e8f9e2ece5e911b95198884741b924f2f9216b"
+    },
+    {
+      "name": "large_numbers_at_safe_int_boundary",
+      "input": {
+        "big": 9007199254740991,
+        "small": 0.0001
+      },
+      "expected_hex": "f6fb93a201f240ae63316ea6daffdb3b6e1b17682e3dcd37a1627066834dba65"
+    },
+    {
+      "name": "shell_command_args",
+      "input": {
+        "command": "psql -h db.example.com -U admin -d prod -c 'SELECT * FROM users LIMIT 10;'",
+        "env": {
+          "PGPASSWORD": "<redacted>"
+        },
+        "cwd": "/tmp"
+      },
+      "expected_hex": "068888bbdf862645a5955b3e2df779e93ae77e18d57c21713dbef771667b36e6"
+    },
+    {
+      "name": "duplicate_value_distinct_keys",
+      "input": {
+        "a": "x",
+        "b": "x",
+        "c": "x"
+      },
+      "expected_hex": "23a9263508c74945a53e46a293a41bb65ed4247220c9d104a80cd2bd033eae8d"
+    }
+  ]
+}
