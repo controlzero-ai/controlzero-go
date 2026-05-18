@@ -88,9 +88,19 @@ func (e *PolicyEvaluator) SetDefaultAction(action string) {
 }
 
 // EvalContext is optional context for resource-level matching.
+//
+// gh#175 P1.1: ClientName and ProjectID are part of the audit trail
+// for the multi-client + per-project rule selectors. The Go enforcer
+// does NOT yet gate on these fields (selector evaluation is tracked
+// under the gh#175 Go SDK port slice); they are surfaced into the
+// audit row so the cross-SDK audit shape is invariant and dashboards
+// can SELECT client_name / project_id without special-casing the Go
+// surface. Empty string means "no value detected".
 type EvalContext struct {
-	Resource string
-	Tags     map[string]string
+	Resource   string
+	Tags       map[string]string
+	ClientName string
+	ProjectID  string
 }
 
 // Evaluate returns a PolicyDecision for the given tool/method. Always returns;

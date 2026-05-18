@@ -54,6 +54,19 @@ type Client struct {
 	bearerSink     *BearerAuditSink
 	agentName      string
 	policySettings PolicySettings
+	// hostedProjectID is the authenticated project_id from the parsed
+	// hosted bundle (empty in local mode). gh#175 P1.1: stamped on
+	// every audit row as `project_id` so dashboards see the
+	// authoritative value, not whatever the caller put in Context.
+	hostedProjectID string
+	// isHosted reports whether the SDK booted in hosted mode
+	// (signed bundle pulled from the control plane). When true, the
+	// caller-supplied Context.ProjectID is ALWAYS overwritten by
+	// hostedProjectID -- including the case where hostedProjectID is
+	// itself empty. Without this an unscoped bundle would let a
+	// caller spoof a project_id at the SDK boundary (P1 gap caught
+	// in gh#175 outside-voice review).
+	isHosted bool
 }
 
 // PolicySettings returns the effective settings block (default_action,
@@ -190,6 +203,7 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 	var localSource any
 	hasLocal := false
 	isPreloadedHosted := false
+	hostedProjectIDValue := ""
 
 	if callerSuppliedLocal {
 		ls, hl := resolveLocalSource(cfg)
@@ -199,13 +213,21 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 			notifyActiveSource("explicit-local", describeLocal(cfg))
 		}
 	} else if hasAPIKey && !localOverride {
-		policyMap, _, err := loadHostedPolicy(ctx, apiKey, GetAPIURL())
+		policyMap, parsed, err := loadHostedPolicy(ctx, apiKey, GetAPIURL())
 		if err != nil {
 			return nil, err
 		}
 		localSource = policyMap
 		hasLocal = true
 		isPreloadedHosted = true
+		// gh#175 P1.1: capture the authenticated project_id from
+		// the signed bundle so auditDecision can stamp it on every
+		// row, defeating caller-side spoofing via Context.ProjectID.
+		if parsed != nil {
+			if pid, ok := parsed.Payload["project_id"].(string); ok {
+				hostedProjectIDValue = pid
+			}
+		}
 		notifyActiveSource("hosted", apiKeyPrefix(apiKey))
 	} else {
 		// No api_key OR local-override escape hatch.
@@ -222,10 +244,12 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		apiKey:         apiKey,
-		hasAPIKey:      hasAPIKey,
-		hasLocalPolicy: hasLocal,
-		agentName:      agentName,
+		apiKey:          apiKey,
+		hasAPIKey:       hasAPIKey,
+		hasLocalPolicy:  hasLocal,
+		agentName:       agentName,
+		hostedProjectID: hostedProjectIDValue,
+		isHosted:        isPreloadedHosted,
 	}
 
 	// Hybrid detection: api_key + caller-supplied local. Skip when the
@@ -340,6 +364,12 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 		method = "*"
 	}
 
+	// gh#175 P1.1 audit trail: build the evaluation context with
+	// detected client_name + authenticated project_id so the audit
+	// row records what the SDK saw. Hosted bundle's project_id always
+	// wins; in local mode the caller's value is honoured.
+	evalContext := c.buildEvalContext(opts.Context)
+
 	// Quarantine check: if this machine is quarantined due to tamper detection,
 	// deny ALL tool calls until recovery. Emits the canonical
 	// MACHINE_QUARANTINED reason_code so dashboards can count
@@ -356,7 +386,7 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 			ReasonCode:          ReasonCodeMachineQuarantined,
 			PolicyEngineVersion: PolicyEngineVersion,
 		}
-		c.auditDecision(tool, method, opts.Args, decision)
+		c.auditDecision(tool, method, opts.Args, decision, evalContext)
 		if opts.RaiseOnDeny {
 			return decision, &PolicyDeniedError{Decision: decision}
 		}
@@ -384,7 +414,7 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 				}
 			}
 		}()
-		decision = c.evaluator.Evaluate(tool, method, opts.Context)
+		decision = c.evaluator.Evaluate(tool, method, evalContext)
 	}()
 
 	// DLP scanning: if the policy allowed the call, scan tool args for
@@ -407,13 +437,43 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 		}
 	}
 
-	c.auditDecision(tool, method, opts.Args, decision)
+	c.auditDecision(tool, method, opts.Args, decision, evalContext)
 
 	if opts.RaiseOnDeny && decision.Denied() {
 		return decision, &PolicyDeniedError{Decision: decision}
 	}
 
 	return decision, nil
+}
+
+// buildEvalContext is the gh#175 P1.1 per-call context resolver. It
+// auto-fills ClientName from detectClientName when the caller didn't
+// supply one, and forces ProjectID to the authenticated value from
+// the parsed hosted bundle (defeats caller-side spoofing via
+// opts.Context.ProjectID). In local mode (no signed bundle) the
+// caller's value is honoured.
+func (c *Client) buildEvalContext(caller *EvalContext) *EvalContext {
+	out := &EvalContext{}
+	if caller != nil {
+		out.Resource = caller.Resource
+		out.Tags = caller.Tags
+		out.ClientName = caller.ClientName
+		out.ProjectID = caller.ProjectID
+	}
+	if out.ClientName == "" {
+		out.ClientName = detectClientName()
+	}
+	if c.isHosted {
+		// Authoritative source wins -- ALWAYS overwrite when in
+		// hosted mode, including when hostedProjectID itself is
+		// empty. Without the unconditional overwrite (i.e. if we
+		// only overwrote on non-empty hostedProjectID), an
+		// un-scoped hosted bundle would let a caller spoof a
+		// project_id via Context.ProjectID and bypass a
+		// project-scoped deny rule. gh#175 outside-voice P1.
+		out.ProjectID = c.hostedProjectID
+	}
+	return out
 }
 
 // Close flushes and closes the local audit log sink.
@@ -542,7 +602,7 @@ func (c *Client) noopDecision() PolicyDecision {
 	}
 }
 
-func (c *Client) auditDecision(tool, method string, args map[string]any, decision PolicyDecision) {
+func (c *Client) auditDecision(tool, method string, args map[string]any, decision PolicyDecision, evalContext *EvalContext) {
 	keys := make([]string, 0, len(args))
 	for k := range args {
 		keys = append(keys, k)
@@ -565,6 +625,21 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		engineVersion = PolicyEngineVersion
 	}
 
+	// gh#175 P1.1 audit trail: resolve the per-call selector context.
+	// The Go enforcer does not yet evaluate selectors so GateMatched
+	// is always "none" here, but the three columns exist so the
+	// cross-SDK audit shape is invariant.
+	clientNameValue := ""
+	projectIDValue := ""
+	if evalContext != nil {
+		clientNameValue = evalContext.ClientName
+		projectIDValue = evalContext.ProjectID
+	}
+	gateMatchedValue := decision.GateMatched
+	if gateMatchedValue == "" {
+		gateMatchedValue = "none"
+	}
+
 	entry := map[string]any{
 		"decision":              decision.Effect,
 		"tool":                  tool,
@@ -577,6 +652,10 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		"args_hash":             argsHashValue,
 		"policy_engine_version": engineVersion,
 		"mode":                  "local",
+		// gh#175 P1.1: see comment above.
+		"client_name":  clientNameValue,
+		"project_id":   projectIDValue,
+		"gate_matched": gateMatchedValue,
 	}
 
 	if c.audit != nil {

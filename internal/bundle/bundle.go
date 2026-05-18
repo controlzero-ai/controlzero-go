@@ -422,6 +422,39 @@ func translateRule(rule map[string]any, policyID string) map[string]any {
 	if rc, ok := rule["reason_code"].(string); ok && rc != "" {
 		out["reason_code"] = rc
 	}
+	// gh#175 P1.1 outside-voice review: pass `clients` / `projects`
+	// selectors through to the local rule shape. Without this, the
+	// backend ships selector-scoped rules in the signed bundle but
+	// the Go loader strips them and the engine treats every such
+	// rule as unscoped. Same bug-class as the 2026-04-17 actions-
+	// stripping incident #173 / #221.
+	if clients, ok := rule["clients"].([]any); ok && len(clients) > 0 {
+		strs := make([]string, 0, len(clients))
+		for _, c := range clients {
+			if s, ok := c.(string); ok {
+				strs = append(strs, s)
+			}
+		}
+		if len(strs) > 0 {
+			out["clients"] = strs
+		}
+	}
+	if projects, ok := rule["projects"].([]any); ok && len(projects) > 0 {
+		strs := make([]string, 0, len(projects))
+		for _, p := range projects {
+			if s, ok := p.(string); ok {
+				strs = append(strs, s)
+			}
+		}
+		if len(strs) > 0 {
+			out["projects"] = strs
+		}
+	}
+	// Same pattern (gh#538): the HITL `escalate_on_deny` tag was
+	// also being stripped at the bundle layer. Forward it when present.
+	if escalate, ok := rule["escalate_on_deny"].(bool); ok {
+		out["escalate_on_deny"] = escalate
+	}
 	return out
 }
 

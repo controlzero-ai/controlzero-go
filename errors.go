@@ -32,6 +32,20 @@ type PolicyDecision struct {
 	// SDK install shows up as a row whose engine bytes lag the live
 	// backend.
 	PolicyEngineVersion string
+	// GateMatched is the multi-client + per-project rule selectors
+	// audit column (gh#175 outside-voice P1.1). One of:
+	//   "none"    - rule had no selectors (legacy rule) OR no rule fired
+	//   "client"  - rule had only `clients:` set and it matched
+	//   "project" - rule had only `projects:` set and it matched
+	//   "both"    - rule had both, both matched
+	//
+	// The Go SDK enforcer does not yet evaluate selectors (tracked
+	// under the gh#175 Go SDK port slice); until that lands, every
+	// Go decision carries GateMatched="none". The column exists
+	// today so the cross-SDK audit shape is invariant: dashboards
+	// can always SELECT gate_matched without special-casing by
+	// surface.
+	GateMatched string
 }
 
 // PolicyEngineVersion is the version of the policy engine the SDK is
