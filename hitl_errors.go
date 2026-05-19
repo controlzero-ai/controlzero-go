@@ -69,7 +69,24 @@ const (
 	ECodeSecretValueLeakInPayload = "E1709"
 	ECodeSecretApprovalRequired   = "E1710"
 	ECodeSecretNotFound           = "E1711"
+	// ECodeApprovalsDisabled is the gh#618 cascade-disabled gate.
+	// Backend returns HTTP 412 with
+	// {"error":"approvals_disabled_at_scope","resolved_scope":"<scope>"};
+	// SDK maps to *ApprovalsDisabled. Stable across SDKs (Python +
+	// Node share the same numeric code).
+	ECodeApprovalsDisabled = "E1500"
 )
+
+// ErrApprovalsDisabled is the sentinel for errors.Is() matching on
+// the gh#618 cascade-disabled outcome. Callers can write:
+//
+//	if errors.Is(err, controlzero.ErrApprovalsDisabled) { ... }
+//
+// to branch on this specific configuration error regardless of which
+// scope (api_key / project / org / default) produced it. The concrete
+// *ApprovalsDisabled type carries the ResolvedScope field for cases
+// that need to dispatch on the scope itself.
+var ErrApprovalsDisabled = errors.New("controlzero: approvals disabled at scope")
 
 // withECode formats a HITL error message the same way Python does:
 //
@@ -354,3 +371,53 @@ func (e *SecretNotFound) Error() string {
 }
 
 func (e *SecretNotFound) ECode() string { return ECodeSecretNotFound }
+
+// ApprovalsDisabled: E1500 (gh#618).
+//
+// Returned by Client.RequestApproval when the backend rejects the POST
+// with HTTP 412 + {"error":"approvals_disabled_at_scope"}. The
+// hitl_settings cascade (api_key -> project -> org -> default) resolved
+// to enabled=false at ResolvedScope. Configuration-class error, NOT a
+// deny verdict: the tool call never reached the policy engine.
+//
+// Distinct from *HITLNotConfiguredError (E1704, HTTP 404): there the
+// row is missing entirely and the operator must create one; here the
+// row exists and is explicitly off, so the fix is to flip the toggle.
+//
+// errors.Is(err, ErrApprovalsDisabled) returns true.
+type ApprovalsDisabled struct {
+	Message string
+	// ResolvedScope is one of "api_key" | "project" | "org" |
+	// "default" and tells the operator which row to flip in the
+	// dashboard.
+	ResolvedScope string
+}
+
+// NewApprovalsDisabled is the canonical constructor. resolvedScope is
+// the value from the wire body; an empty string is normalised to
+// "default" to keep callers from observing an unset field.
+func NewApprovalsDisabled(msg, resolvedScope string) *ApprovalsDisabled {
+	if msg == "" {
+		msg = "Approvals disabled at this scope"
+	}
+	if resolvedScope == "" {
+		resolvedScope = "default"
+	}
+	return &ApprovalsDisabled{Message: msg, ResolvedScope: resolvedScope}
+}
+
+func (e *ApprovalsDisabled) Error() string {
+	return withECode(
+		fmt.Sprintf("%s (resolved_scope=%s)", e.Message, e.ResolvedScope),
+		ECodeApprovalsDisabled,
+	)
+}
+
+func (e *ApprovalsDisabled) ECode() string { return ECodeApprovalsDisabled }
+
+// Is reports whether err matches ErrApprovalsDisabled so callers can
+// write `errors.Is(err, controlzero.ErrApprovalsDisabled)` without
+// type-asserting against the concrete struct.
+func (e *ApprovalsDisabled) Is(target error) bool {
+	return target == ErrApprovalsDisabled
+}

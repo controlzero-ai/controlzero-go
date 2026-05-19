@@ -233,6 +233,17 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 		}
 	}
 
+	// gh#618: cascade resolved to enabled=false at the named scope.
+	// Branches on the literal `error` value rather than a reason_code
+	// envelope to match the documented wire contract across all three
+	// SDKs. Distinct from 404 (HITLNotConfigured): there the row is
+	// missing entirely; here it's explicitly off.
+	if status == http.StatusPreconditionFailed {
+		if v, ok := errBody["error"].(string); ok && v == "approvals_disabled_at_scope" {
+			resolvedScope, _ := errBody["resolved_scope"].(string)
+			return nil, NewApprovalsDisabled(bodyMsg, resolvedScope)
+		}
+	}
 	if status == 400 && bodyCode == "E1307" {
 		msg := bodyMsg
 		if msg == "" {

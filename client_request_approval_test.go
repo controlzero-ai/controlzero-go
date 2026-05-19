@@ -765,3 +765,93 @@ func TestParseISO8601UTCRejectsGarbage(t *testing.T) {
 	}
 }
 
+// ----------------------------------------------------------------------
+// gh#618: ApprovalsDisabled (HTTP 412)
+// ----------------------------------------------------------------------
+
+func TestRequestApprovalHTTP412MapsToApprovalsDisabled(t *testing.T) {
+	setFakeHomeAndEmail(t, "alice@example.com")
+	srv, _ := serveResponse(t, http.StatusPreconditionFailed, map[string]any{
+		"error":          "approvals_disabled_at_scope",
+		"resolved_scope": "org",
+	}, "")
+	setAPIURL(t, srv.URL)
+	c := makeAPIClient(t)
+	defer c.Close()
+	_, err := c.RequestApproval(context.Background(), PolicyDecision{}, RequestApprovalOpts{})
+	var ad *ApprovalsDisabled
+	if !errors.As(err, &ad) {
+		t.Fatalf("expected *ApprovalsDisabled, got %T: %v", err, err)
+	}
+	if ad.ResolvedScope != "org" {
+		t.Errorf("expected ResolvedScope=org, got %q", ad.ResolvedScope)
+	}
+	if ad.ECode() != "E1500" {
+		t.Errorf("expected ECode=E1500, got %q", ad.ECode())
+	}
+	if !errors.Is(err, ErrApprovalsDisabled) {
+		t.Errorf("errors.Is(err, ErrApprovalsDisabled) must be true")
+	}
+}
+
+func TestRequestApprovalHTTP412DefaultScope(t *testing.T) {
+	setFakeHomeAndEmail(t, "alice@example.com")
+	srv, _ := serveResponse(t, http.StatusPreconditionFailed, map[string]any{
+		"error":          "approvals_disabled_at_scope",
+		"resolved_scope": "default",
+	}, "")
+	setAPIURL(t, srv.URL)
+	c := makeAPIClient(t)
+	defer c.Close()
+	_, err := c.RequestApproval(context.Background(), PolicyDecision{}, RequestApprovalOpts{})
+	var ad *ApprovalsDisabled
+	if !errors.As(err, &ad) {
+		t.Fatalf("expected *ApprovalsDisabled, got %T: %v", err, err)
+	}
+	if ad.ResolvedScope != "default" {
+		t.Errorf("expected ResolvedScope=default, got %q", ad.ResolvedScope)
+	}
+}
+
+func TestRequestApprovalHTTP412MissingResolvedScopeFallsBackToDefault(t *testing.T) {
+	// Defensive: backend forgot to stamp resolved_scope. SDK normalises
+	// to "default" so callers never see an empty field.
+	setFakeHomeAndEmail(t, "alice@example.com")
+	srv, _ := serveResponse(t, http.StatusPreconditionFailed, map[string]any{
+		"error": "approvals_disabled_at_scope",
+	}, "")
+	setAPIURL(t, srv.URL)
+	c := makeAPIClient(t)
+	defer c.Close()
+	_, err := c.RequestApproval(context.Background(), PolicyDecision{}, RequestApprovalOpts{})
+	var ad *ApprovalsDisabled
+	if !errors.As(err, &ad) {
+		t.Fatalf("expected *ApprovalsDisabled, got %T: %v", err, err)
+	}
+	if ad.ResolvedScope != "default" {
+		t.Errorf("expected ResolvedScope=default (normalised), got %q", ad.ResolvedScope)
+	}
+}
+
+func TestRequestApprovalHTTP412UnrelatedFallsThrough(t *testing.T) {
+	// 412 with a body that does not match approvals_disabled_at_scope
+	// must NOT silently become ApprovalsDisabled; fall through to the
+	// catch-all so ops see the raw status.
+	setFakeHomeAndEmail(t, "alice@example.com")
+	srv, _ := serveResponse(t, http.StatusPreconditionFailed, map[string]any{
+		"error": "something_else",
+	}, "")
+	setAPIURL(t, srv.URL)
+	c := makeAPIClient(t)
+	defer c.Close()
+	_, err := c.RequestApproval(context.Background(), PolicyDecision{}, RequestApprovalOpts{})
+	var bu *HITLBackendUnreachableError
+	if !errors.As(err, &bu) {
+		t.Errorf("expected backend unreachable fallthrough, got %T: %v", err, err)
+	}
+	var ad *ApprovalsDisabled
+	if errors.As(err, &ad) {
+		t.Errorf("unrelated 412 must not match ApprovalsDisabled")
+	}
+}
+
