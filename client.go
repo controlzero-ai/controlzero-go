@@ -67,6 +67,13 @@ type Client struct {
 	// caller spoof a project_id at the SDK boundary (P1 gap caught
 	// in gh#175 outside-voice review).
 	isHosted bool
+	// policySource is the per-decision provenance enum (migration
+	// 048). Captured once at construction so every audit row this
+	// client emits stamps the same value. Canonical values:
+	//   hosted | local | local-override | cache-fallback | tamper-quarantine
+	// cache-fallback / tamper-quarantine are reserved for a future
+	// SDK rollout; the backend accepts them without a new migration.
+	policySource string
 }
 
 // PolicySettings returns the effective settings block (default_action,
@@ -308,6 +315,19 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 		})
 	}
 
+	// Migration 048 (2026-05-19): compute the per-decision provenance
+	// enum once at construction. Three SDK paths today; reserved
+	// values (cache-fallback / tamper-quarantine) will be wired in a
+	// follow-up rollout once their signals reach the audit seam.
+	switch {
+	case localOverride && hasAPIKey && !callerSuppliedLocal:
+		c.policySource = "local-override"
+	case hasAPIKey:
+		c.policySource = "hosted"
+	default:
+		c.policySource = "local"
+	}
+
 	// T108 (2026-05-12): emit a governance audit event when the
 	// CONTROLZERO_LOCAL_OVERRIDE escape hatch bypassed the hosted
 	// bundle. Posted to the remote audit sink so ops sees it in the
@@ -335,6 +355,11 @@ func (c *Client) emitLocalOverrideAuditEvent(sourceHint string) {
 			"bundle. Local source: " + sourceHint,
 		"reason_code": "LOCAL_OVERRIDE_ACTIVE",
 		"mode":        "lifecycle",
+		// Migration 048: stamp the same provenance enum on the
+		// lifecycle event so downstream filters / banners observe
+		// symmetry with the guard decisions that follow under the
+		// same override.
+		"policy_source": "local-override",
 	}
 	if c.bearerSink != nil {
 		c.bearerSink.Log(entry)
@@ -640,6 +665,15 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		gateMatchedValue = "none"
 	}
 
+	// Migration 048 (2026-05-19): default to the client-cached
+	// provenance enum. Empty fallback ('hosted') matches the column
+	// DEFAULT on the backend so an in-flight upgrade never lands an
+	// invalid value.
+	policySourceValue := c.policySource
+	if policySourceValue == "" {
+		policySourceValue = "hosted"
+	}
+
 	entry := map[string]any{
 		"decision":              decision.Effect,
 		"tool":                  tool,
@@ -652,6 +686,8 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		"args_hash":             argsHashValue,
 		"policy_engine_version": engineVersion,
 		"mode":                  "local",
+		// Migration 048: per-decision provenance enum.
+		"policy_source": policySourceValue,
 		// gh#175 P1.1: see comment above.
 		"client_name":  clientNameValue,
 		"project_id":   projectIDValue,

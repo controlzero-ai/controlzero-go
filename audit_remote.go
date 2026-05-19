@@ -271,6 +271,11 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 		// client_version which carries the host CLI version. See
 		// version.go for the source-of-truth + drift guard rationale.
 		"controlzero_sdk_version": sdkVersionWire,
+		// Migration 048 (2026-05-19): per-decision policy_source.
+		// Stamped by the client (hosted | local | local-override) on
+		// every decision. Empty -> backend's column DEFAULT ('hosted')
+		// wins, matching the legacy pre-048 behaviour.
+		"policy_source": strOrEmpty(entry["policy_source"]),
 	}
 }
 
