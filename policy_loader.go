@@ -3,6 +3,7 @@ package controlzero
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -592,6 +593,32 @@ func validateAndTranslate(data map[string]any, sourceLabel string) (ParsedPolicy
 
 	if len(errs) > 0 {
 		return ParsedPolicy{}, &PolicyValidationError{Errors: errs, Source: sourceLabel}
+	}
+
+	// T86 / GitHub #391: warn-not-block on unknown actions at SDK
+	// load time. The backend validator BLOCKS publish with 422;
+	// the SDK can run in local-policy mode where the backend never
+	// sees the rule, so we surface the typo here too. A log.Printf
+	// lets a customer using a custom tool we do not yet know about
+	// keep going while still seeing the did-you-mean for genuine
+	// typos like "database:queryy".
+	var allActions []string
+	for _, rule := range out {
+		allActions = append(allActions, rule.Actions...)
+	}
+	if unknown, suggestions := ValidateActionsT86(allActions); len(unknown) > 0 {
+		for _, action := range unknown {
+			sug := suggestions[action]
+			if len(sug) > 0 {
+				log.Printf("controlzero: rule action %q is not a known canonical "+
+					"action or alias. Did you mean: %s? Source: %s",
+					action, strings.Join(sug, ", "), sourceLabel)
+			} else {
+				log.Printf("controlzero: rule action %q is not a known canonical "+
+					"action or alias and no close match was found. Source: %s",
+					action, sourceLabel)
+			}
+		}
 	}
 
 	return ParsedPolicy{Rules: out, Settings: settings}, nil
