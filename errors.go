@@ -220,3 +220,49 @@ func (e *BundleRequiresNewerSDKError) Error() string {
 // want to branch on the error class without an errors.As dance can
 // read this field directly.
 func (e *BundleRequiresNewerSDKError) ECode() string { return ECodeBundleRequiresNewerSDK }
+
+// --- Credential leak detection (epic #666, PR-4) --------------------------
+//
+// CredentialLeakBlockedError is returned by the credential leak hook
+// `hooks.OnToolOutput(...)` when the configured Action is
+// hooks.ActionBlock and the scanner finds at least one credential
+// match. Maps to E2001 -- the same code Python uses for cross-SDK
+// parity. The audit row is emitted BEFORE this error is returned so
+// the operator dashboard always sees the detection even when the
+// agent never observes the redacted output.
+
+// ECodeCredentialLeakBlocked is the stable E#### code for credential
+// leak block. Matches the Python CredentialLeakBlocked.E_CODE.
+const ECodeCredentialLeakBlocked = "E2001"
+
+// CredentialLeakBlockedError is the typed Go counterpart of the
+// Python CredentialLeakBlocked exception. Carries the credential
+// match count plus the originating source / tool labels for callers
+// that want to log or surface the detection without reflecting on
+// the raw sentinel error.
+//
+// Callers can match either by type (errors.As against this type) or
+// by sentinel (errors.Is against hooks.ErrCredentialLeakBlocked); the
+// hook's Handle method returns an fmt.Errorf chain that satisfies
+// both contracts.
+type CredentialLeakBlockedError struct {
+	// MatchCount is the number of credential matches the scanner
+	// reported on the inspected tool output.
+	MatchCount int
+	// Source labels the origin of the inspected text (tool_output,
+	// tool_stderr, file_read, grep_match).
+	Source string
+	// ToolName is the agent-side tool that produced the inspected
+	// text.
+	ToolName string
+}
+
+func (e *CredentialLeakBlockedError) Error() string {
+	return fmt.Sprintf(
+		"controlzero: credential leak detected; tool output blocked (code=%s, source=%s, tool=%s, matches=%d)",
+		ECodeCredentialLeakBlocked, e.Source, e.ToolName, e.MatchCount,
+	)
+}
+
+// ECode returns the stable E#### code for credential leak block.
+func (e *CredentialLeakBlockedError) ECode() string { return ECodeCredentialLeakBlocked }

@@ -241,7 +241,7 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 		u = usr.Username
 	}
 	policyID, _ := entry["policy_id"].(string)
-	return map[string]any{
+	wire := map[string]any{
 		"id":        newUUID(),
 		"tool_name": strOrEmpty(entry["tool"]),
 		"decision":  strOrDefault(entry["decision"], "allow"),
@@ -277,6 +277,40 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 		// wins, matching the legacy pre-048 behaviour.
 		"policy_source": strOrEmpty(entry["policy_source"]),
 	}
+
+	// Credential leak detection (epic #666, PR-4): forward the new
+	// event-kind plus its credential-specific fields onto the wire.
+	// The backend ingest at /api/audit accepts unknown fields today
+	// (additive schema contract); PR-5 lands the matching analytical
+	// store columns + handler routing. Kept additive so older backends
+	// silently ignore the extra payload until PR-5 ships.
+	//
+	// Cross-SDK parity: Python forwards the same set in
+	// `audit_remote._build_wire_entry`; Node forwards the same set in
+	// `audit_remote.ts toWireFormat`. Keep this list in lockstep when
+	// the schema evolves; the cross-SDK conformance test guards it.
+	if kind, ok := entry["event_kind"]; ok {
+		if kindStr, ok := kind.(string); ok && kindStr != "" {
+			wire["event_kind"] = kindStr
+			for _, key := range []string{
+				"pattern_id",
+				"severity",
+				"value_hash",
+				"context_window",
+				"source",
+				"tool_call_id",
+				"agent_name",
+				"project_id",
+				"enforcement_action",
+				"enforcement_downgraded",
+			} {
+				if v, present := entry[key]; present {
+					wire[key] = v
+				}
+			}
+		}
+	}
+	return wire
 }
 
 type authExpiredError struct{}

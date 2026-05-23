@@ -1,0 +1,1972 @@
+version: 1
+tombstones: []
+patterns:
+- id: AWS_ACCESS_KEY_ID
+  category: cloud
+  provider: aws
+  token_type: access_key_id
+  strategy: regex
+  regex: (?:[^A-Z0-9]|^)(AKIA|ASIA|ABIA|ACCA|A3T[A-Z0-9])[A-Z0-9]{16}(?:[^A-Z0-9]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: AWS IAM access key id. Long-lived production credential when prefixed AKIA; short-lived STS session key when prefixed ASIA. Rotate immediately on detection.
+  rotation_url: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+  references:
+  - https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AWS_SECRET_ACCESS_KEY
+  category: cloud
+  provider: aws
+  token_type: secret_access_key
+  strategy: regex_with_paired_token
+  regex: (?:[^A-Za-z0-9/+=]|^)([A-Za-z0-9/+=]{40})(?:[^A-Za-z0-9/+=]|$)
+  entropy_min: 4.5
+  min_length: 40
+  paired_with: AWS_ACCESS_KEY_ID
+  paired_max_byte_distance: 256
+  label_required:
+  - aws_secret_access_key
+  - SecretAccessKey
+  - AWS_SECRET_ACCESS_KEY
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: AWS secret access key. 40-char base64-shaped value. Only fires when paired with an access key id within 256 bytes OR when an explicit AWS_SECRET_ACCESS_KEY label sits within 64 bytes. Entropy gate filters arbitrary 40-char base64.
+  rotation_url: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+  references:
+  - https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AWS_SESSION_TOKEN
+  category: cloud
+  provider: aws
+  token_type: session_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9/+=]|^)(FwoG[A-Za-z0-9/+=]{50,})(?:[^A-Za-z0-9/+=]|$)
+  entropy_min: 4.5
+  min_length: 200
+  severity: P0
+  default_rotation_hours: 1
+  description: AWS STS session token. Short-lived but production-grade. Starts with FwoG and is base64-shaped over several hundred bytes.
+  rotation_url: https://docs.aws.amazon.com/STS/latest/APIReference/welcome.html
+  references:
+  - https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AWS_BEDROCK_API_KEY
+  category: cloud
+  provider: aws
+  token_type: bedrock_api_key_long_lived
+  strategy: regex
+  regex: (?:[^A-Za-z0-9+/]|^)(ABSK[A-Za-z0-9+/]{109,269})(?:[^A-Za-z0-9+/]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: AWS Bedrock service API key. Provides direct invoke access to foundation models; treat as production cloud credential.
+  rotation_url: https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GCP_API_KEY
+  category: cloud
+  provider: gcp
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(AIza[A-Za-z0-9_-]{35})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Google Cloud Platform API key. Used for Maps, YouTube, Generative AI, Firebase config, and most consumer GCP services. Scope depends on key restrictions; treat as high until proven otherwise.
+  rotation_url: https://cloud.google.com/docs/authentication/api-keys
+  references:
+  - https://cloud.google.com/docs/authentication/api-keys#api_key_format
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GCP_SERVICE_ACCOUNT_JSON
+  category: cloud
+  provider: gcp
+  token_type: service_account_json
+  strategy: marker_block
+  begin_marker: '"type": "service_account"'
+  end_marker: '"client_x509_cert_url"'
+  max_block_bytes: 8192
+  severity: P0
+  default_rotation_hours: 1
+  description: GCP service account JSON key file. Contains a long-lived private key with broad project access. Any detection requires immediate rotation.
+  rotation_url: https://cloud.google.com/iam/docs/keys-create-delete
+  references:
+  - https://cloud.google.com/iam/docs/service-accounts
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AZURE_AD_CLIENT_SECRET
+  category: cloud
+  provider: azure
+  token_type: ad_app_client_secret
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_~.]|^)([a-zA-Z0-9_~.]{3}[0-9]Q~[A-Za-z0-9_~.-]{31,34})(?:[^A-Za-z0-9_~.-]|$)
+  entropy_min: 3.0
+  min_length: 34
+  severity: P0
+  default_rotation_hours: 1
+  description: Azure AD application client secret. Format includes the Q~ infix that Microsoft introduced for scanner identification.
+  rotation_url: https://learn.microsoft.com/en-us/entra/identity-platform/howto-create-service-principal-portal
+  references:
+  - https://learn.microsoft.com/en-us/entra/identity-platform/howto-create-service-principal-portal
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AZURE_STORAGE_ACCOUNT_KEY
+  category: cloud
+  provider: azure
+  token_type: storage_account_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9+/=]|^)([A-Za-z0-9+/]{86}==)(?:[^A-Za-z0-9+/=]|$)
+  entropy_min: 5.0
+  min_length: 88
+  label_required:
+  - AccountKey
+  - storageAccountKey
+  - DefaultEndpointsProtocol
+  label_byte_window: 128
+  severity: P0
+  default_rotation_hours: 1
+  description: Azure storage account primary or secondary key. 88-char base64 ending in '=='. Label-gated to suppress arbitrary base64.
+  rotation_url: https://learn.microsoft.com/en-us/azure/storage/common/storage-account-keys-manage
+  references:
+  - https://learn.microsoft.com/en-us/azure/storage/common/storage-account-keys-manage
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AZURE_SAS_TOKEN
+  category: cloud
+  provider: azure
+  token_type: shared_access_signature
+  strategy: regex
+  regex: (?:[?&])sig=([A-Za-z0-9%]{43,128})(?:&|$)
+  label_required:
+  - blob.core.windows.net
+  - queue.core.windows.net
+  - table.core.windows.net
+  - file.core.windows.net
+  - dfs.core.windows.net
+  - servicebus.windows.net
+  - SharedAccessSignature
+  label_byte_window: 256
+  severity: P1
+  default_rotation_hours: 4
+  description: Azure Shared Access Signature query parameter. Time-limited but scoped at storage container level. Label-gated on Azure resource hosts so non-Azure signed URLs do not trigger (codex P2 review, 2026-05-20).
+  rotation_url: https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview
+  references:
+  - https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CLOUDFLARE_API_TOKEN
+  category: cloud
+  provider: cloudflare
+  token_type: api_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_-]|^)([A-Za-z0-9_-]{40})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 40
+  label_required:
+  - cloudflare
+  - CF_API_TOKEN
+  - CLOUDFLARE_API_TOKEN
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Cloudflare API token. 40 chars of base64url. Label-gated.
+  rotation_url: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+  references:
+  - https://developers.cloudflare.com/fundamentals/api/get-started/token-formats/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CLOUDFLARE_GLOBAL_API_KEY
+  category: cloud
+  provider: cloudflare
+  token_type: global_api_key
+  strategy: regex
+  regex: (?:[^a-f0-9]|^)([a-f0-9]{37})(?:[^a-f0-9]|$)
+  label_required:
+  - cloudflare
+  - CF_API_KEY
+  - X-Auth-Key
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: Cloudflare global API key. Legacy auth, broad account scope. Label-gated to suppress arbitrary 37-char hex.
+  rotation_url: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DIGITALOCEAN_PAT
+  category: cloud
+  provider: digitalocean
+  token_type: personal_access_token
+  strategy: regex
+  regex: (?:[^a-f0-9]|^)(dop_v1_[a-f0-9]{64})(?:[^a-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: DigitalOcean personal access token.
+  rotation_url: https://docs.digitalocean.com/reference/api/create-personal-access-token/
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DIGITALOCEAN_ACCESS_TOKEN
+  category: cloud
+  provider: digitalocean
+  token_type: oauth_access_token
+  strategy: regex
+  regex: (?:[^a-f0-9]|^)(doo_v1_[a-f0-9]{64})(?:[^a-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: DigitalOcean OAuth access token.
+  rotation_url: https://docs.digitalocean.com/reference/api/oauth-api/
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HEROKU_API_KEY_V2
+  category: cloud
+  provider: heroku
+  token_type: api_key_v2
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(HRKU-AA[A-Za-z0-9_-]{58})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Heroku API key, current format.
+  rotation_url: https://devcenter.heroku.com/articles/account-api-tokens
+  references:
+  - https://devcenter.heroku.com/articles/account-api-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ALIBABA_ACCESS_KEY_ID
+  category: cloud
+  provider: alibaba
+  token_type: access_key_id
+  strategy: regex
+  regex: (?:[^A-Za-z0-9]|^)(LTAI[A-Za-z0-9]{16,22})(?:[^A-Za-z0-9]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Alibaba Cloud access key id.
+  rotation_url: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AZURE_DEVOPS_PAT
+  category: cloud
+  provider: azure
+  token_type: devops_pat
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)([a-z2-7]{52})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.0
+  min_length: 52
+  label_required:
+  - dev.azure.com
+  - visualstudio.com
+  - AZDO_TOKEN
+  - AZURE_DEVOPS_PAT
+  - System.AccessToken
+  label_byte_window: 96
+  severity: P0
+  default_rotation_hours: 1
+  description: Azure DevOps personal access token. 52-char base32; label-gated on Azure DevOps hosts and the canonical env var names (gemini P2 review, 2026-05-20).
+  rotation_url: https://dev.azure.com/_usersSettings/tokens
+  references:
+  - https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ADOBE_CLIENT_SECRET
+  category: cloud
+  provider: adobe
+  token_type: io_client_secret
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(p8e-[a-z0-9_-]{32})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Adobe IO client secret (p8e- prefix).
+  rotation_url: https://developer.adobe.com/console
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: OKTA_ACCESS_TOKEN
+  category: cloud
+  provider: okta
+  token_type: api_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9=_-]|^)(00[A-Za-z0-9=_-]{40})(?:[^A-Za-z0-9=_-]|$)
+  entropy_min: 4.0
+  min_length: 42
+  label_required:
+  - okta
+  - OKTA_TOKEN
+  - SSWS
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: Okta API token. Label-gated to suppress arbitrary 42-char tokens.
+  rotation_url: https://developer.okta.com/docs/guides/create-an-api-token/main/
+  references:
+  - https://developer.okta.com/docs/guides/create-an-api-token/main/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: POSTGRES_CONN_STRING_PW
+  category: db
+  provider: postgres
+  token_type: connection_string_password
+  strategy: regex
+  regex: (postgres(?:ql)?://[^:@\s/]+:)([^@\s/]{4,})(@[^\s]+)
+  severity: P0
+  default_rotation_hours: 1
+  description: Postgres connection string with embedded password. Captures the user:password@host segment. Production credential.
+  rotation_url: https://www.postgresql.org/docs/current/auth-password.html
+  references:
+  - https://www.postgresql.org/docs/current/libpq-connect.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: MYSQL_CONN_STRING_PW
+  category: db
+  provider: mysql
+  token_type: connection_string_password
+  strategy: regex
+  regex: (mysql://[^:@\s/]+:)([^@\s/]{4,})(@[^\s]+)
+  severity: P0
+  default_rotation_hours: 1
+  description: MySQL connection string with embedded password.
+  rotation_url: https://dev.mysql.com/doc/refman/8.0/en/account-management-statements.html
+  references:
+  - https://dev.mysql.com/doc/connector-net/en/connector-net-connection-options.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: MONGODB_CONN_STRING_PW
+  category: db
+  provider: mongodb
+  token_type: connection_string_password
+  strategy: regex
+  regex: (mongodb(?:\+srv)?://[^:@\s/]+:)([^@\s/]{4,})(@[^\s]+)
+  severity: P0
+  default_rotation_hours: 1
+  description: MongoDB connection string with embedded password. Covers Atlas mongodb+srv:// and self-hosted mongodb:// shapes.
+  rotation_url: https://www.mongodb.com/docs/atlas/security-add-mongodb-users/
+  references:
+  - https://www.mongodb.com/docs/manual/reference/connection-string/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: REDIS_CONN_STRING_PW
+  category: db
+  provider: redis
+  token_type: connection_string_password
+  strategy: regex
+  regex: (redis(?:s)?://[^:@\s/]*:)([^@\s/]{4,})(@[^\s]+)
+  severity: P0
+  default_rotation_hours: 1
+  description: Redis connection string with embedded password. Covers redis:// and rediss:// (TLS).
+  rotation_url: https://redis.io/docs/management/security/acl/
+  references:
+  - https://redis.io/docs/connect/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CLICKHOUSE_CONN_STRING_PW
+  category: db
+  provider: clickhouse
+  token_type: connection_string_password
+  strategy: regex
+  regex: (clickhouse(?:s)?://[^:@\s/]+:)([^@\s/]{4,})(@[^\s]+)
+  severity: P0
+  default_rotation_hours: 1
+  description: ClickHouse connection string with embedded password.
+  rotation_url: https://clickhouse.com/docs/en/operations/access-rights
+  references:
+  - https://clickhouse.com/docs/en/operations/access-rights
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CLICKHOUSE_CLOUD_API_SECRET
+  category: db
+  provider: clickhouse
+  token_type: cloud_api_secret
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)(4b1d[A-Za-z0-9]{38})(?:[^A-Za-z0-9]|$)
+  entropy_min: 3.0
+  min_length: 42
+  severity: P0
+  default_rotation_hours: 1
+  description: ClickHouse Cloud API secret key.
+  rotation_url: https://clickhouse.com/docs/en/cloud/manage/openapi
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SUPABASE_SERVICE_ROLE_KEY
+  category: db
+  provider: supabase
+  token_type: service_role_jwt
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(sb_secret_[A-Za-z0-9_-]{32,128})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Supabase service role key (current format). Bypasses Row Level Security entirely; production credential.
+  rotation_url: https://supabase.com/docs/guides/api/api-keys
+  references:
+  - https://supabase.com/docs/guides/api/api-keys
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SUPABASE_PUBLISHABLE_KEY
+  category: db
+  provider: supabase
+  token_type: publishable_anon_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(sb_publishable_[A-Za-z0-9_-]{32,128})(?:[^A-Za-z0-9_-]|$)
+  severity: P2
+  default_rotation_hours: 24
+  description: Supabase publishable anon key (current format). Public-by-design but advisory rotation if exposed pre-launch.
+  rotation_url: https://supabase.com/docs/guides/api/api-keys
+  references:
+  - https://supabase.com/docs/guides/api/api-keys
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SNOWFLAKE_PASSWORD_LABEL
+  category: db
+  provider: snowflake
+  token_type: password
+  strategy: regex
+  regex: (SNOWFLAKE_PASSWORD|snowflake_password|SF_PASSWORD)\s*[:=]\s*["']?([^\s"'#]{8,128})
+  severity: P0
+  default_rotation_hours: 1
+  description: Snowflake password assigned to a labelled env var or config key. Matches the assignment shape, not arbitrary strings.
+  rotation_url: https://docs.snowflake.com/en/user-guide/admin-account-management
+  references:
+  - https://docs.snowflake.com/en/user-guide/security-access-control-considerations
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PLANETSCALE_PASSWORD
+  category: db
+  provider: planetscale
+  token_type: database_password
+  strategy: regex
+  regex: (?:[^A-Za-z0-9._=-]|^)(pscale_pw_[A-Za-z0-9._=-]{32,64})(?:[^A-Za-z0-9._=-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: PlanetScale database password.
+  rotation_url: https://planetscale.com/docs/concepts/connection-strings
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PLANETSCALE_API_TOKEN
+  category: db
+  provider: planetscale
+  token_type: api_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9._=-]|^)(pscale_tkn_[A-Za-z0-9._=-]{32,64})(?:[^A-Za-z0-9._=-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: PlanetScale API token.
+  rotation_url: https://planetscale.com/docs/concepts/service-tokens
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PINECONE_API_KEY
+  category: db
+  provider: pinecone
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^a-f0-9-]|^)(pcsk_[A-Za-z0-9_]{6,12}_[A-Za-z0-9]{32,48})(?:[^A-Za-z0-9_]|$)
+  entropy_min: 3.5
+  min_length: 40
+  severity: P1
+  default_rotation_hours: 4
+  description: Pinecone vector database API key (pcsk_ prefix).
+  rotation_url: https://docs.pinecone.io/reference/api/authentication
+  references:
+  - https://docs.pinecone.io/reference/api/authentication
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ORACLE_CONN_STRING_PW
+  category: db
+  provider: oracle
+  token_type: connection_string_password
+  strategy: regex
+  regex: (oracle://[^:@\s/]+:)([^@\s/]{4,})(@[^\s]+)
+  severity: P0
+  default_rotation_hours: 1
+  description: Oracle Database connection string with embedded password. Per gemini P2 review (2026-05-20), Oracle is still prevalent in enterprise 2026 footprints.
+  rotation_url: https://docs.oracle.com/en/database/oracle/oracle-database/19/dbseg/configuring-authentication.html
+  references:
+  - https://docs.oracle.com/en/database/oracle/oracle-database/19/dbseg/configuring-authentication.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ORACLE_TNS_PASSWORD
+  category: db
+  provider: oracle
+  token_type: tnsnames_password
+  strategy: regex
+  regex: (?i)(?:PASSWORD\s*=\s*)([^\s);]{4,128})(?:[\s);]|$)
+  label_required:
+  - oracle
+  - ORACLE_PASSWORD
+  - tnsnames.ora
+  - DESCRIPTION=
+  - CONNECT_DATA
+  label_byte_window: 256
+  severity: P0
+  default_rotation_hours: 1
+  description: Oracle tnsnames.ora / Easy Connect plain password assignment. Label-gated.
+  rotation_url: https://docs.oracle.com/en/database/oracle/oracle-database/19/netag/configuring-naming-methods.html
+  references:
+  - https://docs.oracle.com/en/database/oracle/oracle-database/19/netag/configuring-naming-methods.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: WEAVIATE_API_KEY
+  category: db
+  provider: weaviate
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9-]|^)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[^A-Za-z0-9-]|$)
+  entropy_min: 3.0
+  min_length: 36
+  label_required:
+  - weaviate
+  - WEAVIATE_API_KEY
+  - WEAVIATE_URL
+  label_byte_window: 128
+  severity: P1
+  default_rotation_hours: 4
+  description: Weaviate Cloud API key (UUID shaped, label-gated).
+  rotation_url: https://weaviate.io/developers/wcs/manage-clusters/authentication
+  references:
+  - https://weaviate.io/developers/wcs/manage-clusters/authentication
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: QDRANT_API_KEY
+  category: db
+  provider: qdrant
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9._-]|^)([A-Za-z0-9._-]{30,200})(?:[^A-Za-z0-9._-]|$)
+  entropy_min: 4.5
+  min_length: 30
+  label_required:
+  - qdrant
+  - QDRANT_API_KEY
+  - QDRANT_URL
+  label_byte_window: 128
+  severity: P1
+  default_rotation_hours: 4
+  description: Qdrant Cloud API key (label-gated, high-entropy).
+  rotation_url: https://qdrant.tech/documentation/cloud/authentication/
+  references:
+  - https://qdrant.tech/documentation/cloud/authentication/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DATABRICKS_API_TOKEN
+  category: db
+  provider: databricks
+  token_type: workspace_pat
+  strategy: regex
+  regex: (?:[^a-f0-9]|^)(dapi[a-f0-9]{32})(?:[^a-f0-9]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Databricks workspace personal access token.
+  rotation_url: https://docs.databricks.com/en/dev-tools/auth/pat.html
+  references:
+  - https://docs.databricks.com/en/dev-tools/auth/pat.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITHUB_PAT_CLASSIC
+  category: source
+  provider: github
+  token_type: pat_classic
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(ghp_[A-Za-z0-9]{36})(?:[^A-Za-z0-9_]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: GitHub classic personal access token.
+  rotation_url: https://github.com/settings/tokens
+  references:
+  - https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITHUB_PAT_FINE_GRAINED
+  category: source
+  provider: github
+  token_type: pat_fine_grained
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(github_pat_[A-Za-z0-9_]{82})(?:[^A-Za-z0-9_]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: GitHub fine-grained personal access token.
+  rotation_url: https://github.com/settings/tokens
+  references:
+  - https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITHUB_OAUTH_TOKEN
+  category: source
+  provider: github
+  token_type: oauth_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(gho_[A-Za-z0-9]{36})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: GitHub OAuth access token.
+  rotation_url: https://github.com/settings/applications
+  references:
+  - https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITHUB_APP_USER_TOKEN
+  category: source
+  provider: github
+  token_type: app_user_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(ghu_[A-Za-z0-9]{36})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: GitHub App user-to-server token.
+  rotation_url: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app
+  references:
+  - https://docs.github.com/en/apps/creating-github-apps
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITHUB_APP_SERVER_TOKEN
+  category: source
+  provider: github
+  token_type: app_server_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(ghs_[A-Za-z0-9]{36})(?:[^A-Za-z0-9_]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: GitHub App server-to-server installation token.
+  rotation_url: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app
+  references:
+  - https://docs.github.com/en/apps/creating-github-apps
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITHUB_REFRESH_TOKEN
+  category: source
+  provider: github
+  token_type: refresh_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(ghr_[A-Za-z0-9]{36})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: GitHub OAuth refresh token.
+  rotation_url: https://github.com/settings/applications
+  references:
+  - https://docs.github.com/en/apps/oauth-apps
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITLAB_PAT
+  category: source
+  provider: gitlab
+  token_type: personal_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(glpat-[A-Za-z0-9_-]{20})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: GitLab personal access token.
+  rotation_url: https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html
+  references:
+  - https://docs.gitlab.com/ee/security/token_overview.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITLAB_OAUTH_APP_SECRET
+  category: source
+  provider: gitlab
+  token_type: oauth_app_secret
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(gloas-[A-Za-z0-9_-]{64})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: GitLab OAuth application secret.
+  rotation_url: https://docs.gitlab.com/ee/integration/oauth_provider.html
+  references:
+  - https://docs.gitlab.com/ee/security/token_overview.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GITLAB_RUNNER_TOKEN
+  category: source
+  provider: gitlab
+  token_type: runner_authentication_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(glrt-[A-Za-z0-9_-]{20})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: GitLab runner authentication token.
+  rotation_url: https://docs.gitlab.com/runner/register/
+  references:
+  - https://docs.gitlab.com/ee/security/token_overview.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: BITBUCKET_CLIENT_SECRET
+  category: source
+  provider: bitbucket
+  token_type: oauth_client_secret
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)([A-Za-z0-9]{64})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.0
+  min_length: 64
+  label_required:
+  - bitbucket
+  - BITBUCKET_CLIENT_SECRET
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Bitbucket OAuth client secret. Label-gated.
+  rotation_url: https://support.atlassian.com/bitbucket-cloud/docs/use-oauth-on-bitbucket-cloud/
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ATLASSIAN_API_TOKEN
+  category: source
+  provider: atlassian
+  token_type: api_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)(ATATT3[A-Za-z0-9_-]{180,200}=)(?:[^A-Za-z0-9=_-]|$)
+  entropy_min: 4.0
+  min_length: 180
+  severity: P1
+  default_rotation_hours: 4
+  description: Atlassian (Jira / Confluence) API token, current opaque format.
+  rotation_url: https://id.atlassian.com/manage-profile/security/api-tokens
+  references:
+  - https://confluence.atlassian.com/cloud/api-tokens-938839638.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: NPM_PUBLISH_TOKEN
+  category: source
+  provider: npm
+  token_type: automation_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(npm_[A-Za-z0-9]{36})(?:[^A-Za-z0-9_]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: npm publish / automation token.
+  rotation_url: https://docs.npmjs.com/creating-and-viewing-access-tokens
+  references:
+  - https://docs.npmjs.com/about-access-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PYPI_PUBLISH_TOKEN
+  category: source
+  provider: pypi
+  token_type: upload_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(pypi-AgE[A-Za-z0-9_-]{50,})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: PyPI publish token. Starts with pypi-AgE...
+  rotation_url: https://pypi.org/manage/account/token/
+  references:
+  - https://pypi.org/help/#apitoken
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: RUBYGEMS_API_TOKEN
+  category: source
+  provider: rubygems
+  token_type: api_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(rubygems_[a-f0-9]{48})(?:[^a-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: RubyGems API key.
+  rotation_url: https://guides.rubygems.org/api-key/
+  references:
+  - https://guides.rubygems.org/api-key/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: JFROG_ARTIFACTORY_API_KEY
+  category: source
+  provider: jfrog
+  token_type: artifactory_api_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)(AKCp[A-Za-z0-9]{69})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.5
+  min_length: 73
+  severity: P0
+  default_rotation_hours: 1
+  description: JFrog Artifactory API key.
+  rotation_url: https://jfrog.com/help/r/jfrog-platform-administration-documentation/manage-api-keys
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SOURCEGRAPH_ACCESS_TOKEN
+  category: source
+  provider: sourcegraph
+  token_type: access_token
+  strategy: regex
+  regex: (?:[^a-f0-9]|^)(sgp_[a-fA-F0-9]{40,})(?:[^a-fA-F0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Sourcegraph access token.
+  rotation_url: https://sourcegraph.com/user/settings/tokens
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ANTHROPIC_API_KEY
+  category: llm
+  provider: anthropic
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(sk-ant-api03-[A-Za-z0-9_-]{93}AA)(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Anthropic API key (api03 format).
+  rotation_url: https://console.anthropic.com/settings/keys
+  references:
+  - https://docs.anthropic.com/en/api/overview
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ANTHROPIC_ADMIN_API_KEY
+  category: llm
+  provider: anthropic
+  token_type: admin_api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(sk-ant-admin01-[A-Za-z0-9_-]{93}AA)(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Anthropic admin-tier API key.
+  rotation_url: https://console.anthropic.com/settings/keys
+  references:
+  - https://docs.anthropic.com/en/api/overview
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: OPENAI_API_KEY
+  category: llm
+  provider: openai
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(sk-(?:proj|svcacct|admin|None)-[A-Za-z0-9_-]{40,180}T3BlbkFJ[A-Za-z0-9_-]{40,180})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: OpenAI API key, current project / service-account / admin format. The literal T3BlbkFJ infix (base64 of 'OpenAI') is the canonical anchor.
+  rotation_url: https://platform.openai.com/api-keys
+  references:
+  - https://platform.openai.com/docs/api-reference/authentication
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: OPENAI_API_KEY_LEGACY
+  category: llm
+  provider: openai
+  token_type: api_key_legacy
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)(sk-[A-Za-z0-9]{48})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.0
+  min_length: 51
+  label_required:
+  - openai
+  - OPENAI_API_KEY
+  - OPENAI_KEY
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: OpenAI legacy API key (pre-project format). Label-gated to suppress arbitrary sk- prefixed strings.
+  rotation_url: https://platform.openai.com/api-keys
+  references:
+  - https://platform.openai.com/docs/api-reference/authentication
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GOOGLE_GENAI_API_KEY
+  category: llm
+  provider: google
+  token_type: generative_ai_api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(AIza[A-Za-z0-9_-]{35})(?:[^A-Za-z0-9_-]|$)
+  label_required:
+  - GEMINI_API_KEY
+  - GOOGLE_API_KEY
+  - GOOGLE_GENAI_API_KEY
+  - generativelanguage
+  label_byte_window: 96
+  severity: P0
+  default_rotation_hours: 1
+  description: Google Generative AI / Gemini API key. Same shape as GCP API key; label distinguishes the LLM scope from the generic cloud scope.
+  rotation_url: https://aistudio.google.com/app/apikey
+  references:
+  - https://ai.google.dev/gemini-api/docs/api-key
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: COHERE_API_KEY
+  category: llm
+  provider: cohere
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)([A-Za-z0-9]{40})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.0
+  min_length: 40
+  label_required:
+  - cohere
+  - COHERE_API_KEY
+  - co_api_key
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Cohere API key. Label-gated.
+  rotation_url: https://dashboard.cohere.com/api-keys
+  references:
+  - https://docs.cohere.com/reference/about
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HUGGINGFACE_USER_TOKEN
+  category: llm
+  provider: huggingface
+  token_type: user_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(hf_[A-Za-z0-9]{34,40})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Hugging Face user access token. Current format is mixed alphanumeric; the original gitleaks rule was letters-only and missed valid keys (codex P1 review, 2026-05-20).
+  rotation_url: https://huggingface.co/settings/tokens
+  references:
+  - https://huggingface.co/docs/hub/security-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HUGGINGFACE_ORG_TOKEN
+  category: llm
+  provider: huggingface
+  token_type: organization_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(api_org_[A-Za-z0-9]{34,40})(?:[^A-Za-z0-9_]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Hugging Face organization API token.
+  rotation_url: https://huggingface.co/settings/tokens
+  references:
+  - https://huggingface.co/docs/hub/security-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: REPLICATE_API_TOKEN
+  category: llm
+  provider: replicate
+  token_type: api_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_]|^)(r8_[A-Za-z0-9]{37,40})(?:[^A-Za-z0-9_]|$)
+  entropy_min: 4.0
+  min_length: 40
+  severity: P1
+  default_rotation_hours: 4
+  description: Replicate inference API token.
+  rotation_url: https://replicate.com/account/api-tokens
+  references:
+  - https://replicate.com/docs/reference/http
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PERPLEXITY_API_KEY
+  category: llm
+  provider: perplexity
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9]|^)(pplx-[A-Za-z0-9]{48})(?:[^A-Za-z0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Perplexity AI API key.
+  rotation_url: https://www.perplexity.ai/settings/api
+  references:
+  - https://docs.perplexity.ai/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: MISTRAL_API_KEY
+  category: llm
+  provider: mistral
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)([A-Za-z0-9]{32})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.0
+  min_length: 32
+  label_required:
+  - mistral
+  - MISTRAL_API_KEY
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Mistral AI API key. Label-gated.
+  rotation_url: https://console.mistral.ai/api-keys/
+  references:
+  - https://docs.mistral.ai/admin/security-access/api-keys
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: TOGETHER_API_KEY
+  category: llm
+  provider: together
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^a-f0-9]|^)([a-f0-9]{64})(?:[^a-f0-9]|$)
+  entropy_min: 3.5
+  min_length: 64
+  label_required:
+  - together
+  - TOGETHER_API_KEY
+  - TOGETHER_AI_KEY
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Together AI API key (64-char hex). Label-gated.
+  rotation_url: https://api.together.xyz/settings/api-keys
+  references:
+  - https://docs.together.ai/docs/quickstart
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GROQ_API_KEY
+  category: llm
+  provider: groq
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(gsk_[A-Za-z0-9]{52})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Groq API key.
+  rotation_url: https://console.groq.com/keys
+  references:
+  - https://console.groq.com/docs/quickstart
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: STRIPE_LIVE_SECRET
+  category: saas
+  provider: stripe
+  token_type: live_secret_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_]|^)((?:sk|rk)_live_[A-Za-z0-9]{20,99})(?:[^A-Za-z0-9_]|$)
+  entropy_min: 3.5
+  min_length: 28
+  severity: P0
+  default_rotation_hours: 1
+  description: Stripe live mode secret or restricted key. Production payment credential.
+  rotation_url: https://dashboard.stripe.com/apikeys
+  references:
+  - https://docs.stripe.com/keys
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: STRIPE_TEST_SECRET
+  category: saas
+  provider: stripe
+  token_type: test_secret_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)((?:sk|rk)_test_[A-Za-z0-9]{20,99})(?:[^A-Za-z0-9_]|$)
+  severity: P2
+  default_rotation_hours: 24
+  description: Stripe test mode secret or restricted key. Advisory; rotate but not production-blocking.
+  rotation_url: https://dashboard.stripe.com/test/apikeys
+  references:
+  - https://docs.stripe.com/keys
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: STRIPE_WEBHOOK_SECRET
+  category: saas
+  provider: stripe
+  token_type: webhook_signing_secret
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(whsec_[A-Za-z0-9]{32,64})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Stripe webhook signing secret.
+  rotation_url: https://dashboard.stripe.com/webhooks
+  references:
+  - https://docs.stripe.com/webhooks/signatures
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: TWILIO_API_KEY_SID
+  category: saas
+  provider: twilio
+  token_type: api_key_sid
+  strategy: regex
+  regex: (?:[^A-Za-z0-9]|^)(SK[a-fA-F0-9]{32})(?:[^A-Za-z0-9]|$)
+  severity: P2
+  default_rotation_hours: 24
+  description: Twilio API Key SID. Identifier, not the secret -- the paired API Key Secret is the credential. Severity is P2 because the SID alone is not exploitable. Per codex P1 review (2026-05-20).
+  rotation_url: https://www.twilio.com/console/runtime/api-keys
+  references:
+  - https://www.twilio.com/docs/iam/keys/api-key
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: TWILIO_ACCOUNT_SID
+  category: saas
+  provider: twilio
+  token_type: account_sid
+  strategy: regex
+  regex: (?:[^A-Za-z0-9]|^)(AC[a-fA-F0-9]{32})(?:[^A-Za-z0-9]|$)
+  severity: P2
+  default_rotation_hours: 24
+  description: Twilio Account SID. Identifier (not secret) but flagged because pair with auth token = full account access. Per codex P1 review (2026-05-20), severity stays P2 because the SID alone is not exploitable.
+  rotation_url: https://console.twilio.com/
+  references:
+  - https://www.twilio.com/docs/iam/api
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SENDGRID_API_KEY
+  category: saas
+  provider: sendgrid
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_.-]|^)(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})(?:[^A-Za-z0-9_.-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: SendGrid API key.
+  rotation_url: https://app.sendgrid.com/settings/api_keys
+  references:
+  - https://docs.sendgrid.com/ui/account-and-settings/api-keys
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: MAILGUN_PRIVATE_API_KEY
+  category: saas
+  provider: mailgun
+  token_type: private_api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(key-[a-f0-9]{32})(?:[^a-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Mailgun private API key.
+  rotation_url: https://app.mailgun.com/app/account/security/api_keys
+  references:
+  - https://documentation.mailgun.com/en/latest/api_reference.html
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: POSTMARK_SERVER_TOKEN
+  category: saas
+  provider: postmark
+  token_type: server_api_token
+  strategy: regex_with_entropy
+  regex: (?:[^a-f0-9-]|^)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[^a-f0-9-]|$)
+  entropy_min: 3.0
+  min_length: 36
+  label_required:
+  - postmark
+  - POSTMARK_SERVER_TOKEN
+  - X-Postmark-Server-Token
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Postmark server API token (UUID shaped, label-gated).
+  rotation_url: https://account.postmarkapp.com/servers
+  references:
+  - https://postmarkapp.com/developer/api/overview
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: RESEND_API_KEY
+  category: saas
+  provider: resend
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(re_[A-Za-z0-9]{8}_[A-Za-z0-9]{24})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Resend transactional email API key.
+  rotation_url: https://resend.com/api-keys
+  references:
+  - https://resend.com/docs/api-reference/introduction
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SLACK_BOT_TOKEN
+  category: saas
+  provider: slack
+  token_type: bot_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9-]|^)(xoxb-[0-9]{10,15}-[0-9]{10,15}-[A-Za-z0-9]{24,34})(?:[^A-Za-z0-9-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Slack bot user OAuth token (xoxb-).
+  rotation_url: https://api.slack.com/authentication/token-types
+  references:
+  - https://api.slack.com/authentication/token-types
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SLACK_USER_TOKEN
+  category: saas
+  provider: slack
+  token_type: user_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9-]|^)(xoxp-[0-9]{10,15}-[0-9]{10,15}-[0-9]{10,15}-[A-Za-z0-9]{24,34})(?:[^A-Za-z0-9-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Slack user OAuth token (xoxp-).
+  rotation_url: https://api.slack.com/authentication/token-types
+  references:
+  - https://api.slack.com/authentication/token-types
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SLACK_APP_TOKEN
+  category: saas
+  provider: slack
+  token_type: app_level_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9-]|^)(xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[a-z0-9]{50,})(?:[^A-Za-z0-9-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Slack app-level token (xapp-).
+  rotation_url: https://api.slack.com/authentication/token-types#app
+  references:
+  - https://api.slack.com/authentication/token-types
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SLACK_WEBHOOK_URL
+  category: saas
+  provider: slack
+  token_type: incoming_webhook_url
+  strategy: regex
+  regex: (https://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9+/]{40,80})
+  severity: P1
+  default_rotation_hours: 4
+  description: Slack incoming webhook URL. Anyone with the URL can post to the channel.
+  rotation_url: https://api.slack.com/messaging/webhooks
+  references:
+  - https://api.slack.com/messaging/webhooks
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DISCORD_BOT_TOKEN
+  category: saas
+  provider: discord
+  token_type: bot_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9._-]|^)([MN][A-Za-z0-9]{23}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,38})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 59
+  severity: P0
+  default_rotation_hours: 1
+  description: Discord bot token.
+  rotation_url: https://discord.com/developers/applications
+  references:
+  - https://discord.com/developers/docs/topics/oauth2
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: NOTION_API_TOKEN
+  category: saas
+  provider: notion
+  token_type: integration_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(ntn_[0-9]{11}[A-Za-z0-9]{32}[A-Za-z0-9]{3})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Notion integration token.
+  rotation_url: https://www.notion.so/my-integrations
+  references:
+  - https://developers.notion.com/docs/authorization
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: LINEAR_API_KEY
+  category: saas
+  provider: linear
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(lin_api_[A-Za-z0-9]{40})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Linear issue tracker API key.
+  rotation_url: https://linear.app/settings/api
+  references:
+  - https://developers.linear.app/docs/graphql/working-with-the-graphql-api/authentication
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: FIGMA_PAT
+  category: saas
+  provider: figma
+  token_type: personal_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(figd_[A-Za-z0-9_-]{40,64})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Figma personal access token.
+  rotation_url: https://www.figma.com/developers/api#authentication
+  references:
+  - https://www.figma.com/developers/api#authentication
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DATADOG_API_KEY
+  category: saas
+  provider: datadog
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^a-f0-9]|^)([a-f0-9]{32})(?:[^a-f0-9]|$)
+  entropy_min: 3.0
+  min_length: 32
+  label_required:
+  - datadog
+  - DD_API_KEY
+  - DATADOG_API_KEY
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: Datadog API key (32-char hex). Label-gated.
+  rotation_url: https://app.datadoghq.com/organization-settings/api-keys
+  references:
+  - https://docs.datadoghq.com/account_management/api-app-keys/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DATADOG_APP_KEY
+  category: saas
+  provider: datadog
+  token_type: application_key
+  strategy: regex_with_entropy
+  regex: (?:[^a-f0-9]|^)([a-f0-9]{40})(?:[^a-f0-9]|$)
+  entropy_min: 3.0
+  min_length: 40
+  label_required:
+  - datadog
+  - DD_APP_KEY
+  - DATADOG_APP_KEY
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: Datadog application key (40-char hex). Label-gated.
+  rotation_url: https://app.datadoghq.com/personal-settings/application-keys
+  references:
+  - https://docs.datadoghq.com/account_management/api-app-keys/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: NEW_RELIC_USER_KEY
+  category: saas
+  provider: newrelic
+  token_type: user_api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9-]|^)(NRAK-[A-Z0-9]{27})(?:[^A-Za-z0-9-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: New Relic user API key.
+  rotation_url: https://one.newrelic.com/admin-portal/api-keys/home
+  references:
+  - https://docs.newrelic.com/docs/apis/intro-apis/new-relic-api-keys/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: NEW_RELIC_INSERT_KEY
+  category: saas
+  provider: newrelic
+  token_type: insert_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9-]|^)(NRII-[a-z0-9-]{32})(?:[^A-Za-z0-9-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: New Relic data insertion key.
+  rotation_url: https://one.newrelic.com/admin-portal/api-keys/home
+  references:
+  - https://docs.newrelic.com/docs/data-apis/ingest-apis/event-api/introduction-event-api/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SENTRY_USER_TOKEN
+  category: saas
+  provider: sentry
+  token_type: user_auth_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(sntryu_[a-f0-9]{64})(?:[^a-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Sentry user auth token (current format).
+  rotation_url: https://sentry.io/settings/account/api/auth-tokens/
+  references:
+  - https://docs.sentry.io/api/auth/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SENTRY_ORG_TOKEN
+  category: saas
+  provider: sentry
+  token_type: organization_auth_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_]|^)(sntrys_eyJ[A-Za-z0-9+/=]{60,400})(?:[^A-Za-z0-9+/=]|$)
+  entropy_min: 4.5
+  min_length: 100
+  severity: P0
+  default_rotation_hours: 1
+  description: Sentry organization auth token (sntrys_ prefix).
+  rotation_url: https://sentry.io/settings/account/api/auth-tokens/
+  references:
+  - https://docs.sentry.io/api/auth/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PAGERDUTY_API_KEY
+  category: saas
+  provider: pagerduty
+  token_type: api_key
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_-]|^)([A-Za-z0-9_+-]{20})(?:[^A-Za-z0-9_+-]|$)
+  entropy_min: 4.0
+  min_length: 20
+  label_required:
+  - pagerduty
+  - PD_API_KEY
+  - PAGERDUTY_TOKEN
+  - Authorization Token token=
+  label_byte_window: 96
+  severity: P1
+  default_rotation_hours: 4
+  description: PagerDuty REST API key. 20-char opaque token; label-gated.
+  rotation_url: https://support.pagerduty.com/docs/api-access-keys
+  references:
+  - https://developer.pagerduty.com/docs/rest-api-v2/authentication/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: INTERCOM_ACCESS_TOKEN
+  category: saas
+  provider: intercom
+  token_type: access_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_=-]|^)(dG9rOl[A-Za-z0-9_=-]{50,80})(?:[^A-Za-z0-9_=-]|$)
+  entropy_min: 4.0
+  min_length: 50
+  severity: P1
+  default_rotation_hours: 4
+  description: Intercom access token. Starts with the literal dG9rOl base64 prefix.
+  rotation_url: https://app.intercom.com/a/apps/_/settings/api-keys
+  references:
+  - https://developers.intercom.com/building-apps/docs/authentication-types
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SHOPIFY_ACCESS_TOKEN
+  category: saas
+  provider: shopify
+  token_type: admin_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(shpat_[a-fA-F0-9]{32})(?:[^a-fA-F0-9]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Shopify admin API access token.
+  rotation_url: https://shopify.dev/docs/apps/auth/admin-app-access-tokens
+  references:
+  - https://shopify.dev/docs/api/admin-rest
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SHOPIFY_SHARED_SECRET
+  category: saas
+  provider: shopify
+  token_type: shared_secret
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(shpss_[a-fA-F0-9]{32})(?:[^a-fA-F0-9]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Shopify webhook shared secret.
+  rotation_url: https://shopify.dev/docs/apps/build/webhooks
+  references:
+  - https://shopify.dev/docs/apps/build/webhooks/customize/hmac
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ASANA_PAT
+  category: saas
+  provider: asana
+  token_type: personal_access_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_/-]|^)([0-9]{1,4}/[0-9]{16}:[a-f0-9]{32})(?:[^a-f0-9/:]|$)
+  entropy_min: 3.0
+  min_length: 50
+  severity: P1
+  default_rotation_hours: 4
+  description: 'Asana personal access token. Format: ratelimit/account:hash.'
+  rotation_url: https://app.asana.com/0/my-apps
+  references:
+  - https://developers.asana.com/docs/personal-access-token
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: MICROSOFT_TEAMS_WEBHOOK
+  category: saas
+  provider: microsoft
+  token_type: teams_incoming_webhook
+  strategy: regex
+  regex: (https://[a-zA-Z0-9-]+\.webhook\.office\.com/webhookb2/[A-Za-z0-9_-]+@[A-Za-z0-9_-]+/IncomingWebhook/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+)
+  severity: P1
+  default_rotation_hours: 4
+  description: Microsoft Teams incoming webhook URL.
+  rotation_url: https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook
+  references:
+  - https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ZENDESK_API_TOKEN
+  category: saas
+  provider: zendesk
+  token_type: api_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)([A-Za-z0-9]{40})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.0
+  min_length: 40
+  label_required:
+  - zendesk
+  - ZENDESK_API_TOKEN
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Zendesk API token (label-gated).
+  rotation_url: https://support.zendesk.com/hc/en-us/articles/4408889192858
+  references:
+  - https://developer.zendesk.com/api-reference/introduction/security-and-auth/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: TYPEFORM_API_TOKEN
+  category: saas
+  provider: typeform
+  token_type: personal_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_.=-]|^)(tfp_[A-Za-z0-9_.=-]{59})(?:[^A-Za-z0-9_.=-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Typeform personal access token.
+  rotation_url: https://admin.typeform.com/account#/section/tokens
+  references:
+  - https://www.typeform.com/developers/get-started/personal-access-token/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: MAPBOX_SECRET_TOKEN
+  category: saas
+  provider: mapbox
+  token_type: secret_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_.-]|^)(sk\.[A-Za-z0-9]{50,80}\.[A-Za-z0-9_-]{22,30})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Mapbox secret access token. The pk. variant is public-by-design and is not flagged.
+  rotation_url: https://account.mapbox.com/access-tokens/
+  references:
+  - https://docs.mapbox.com/help/getting-started/access-tokens/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GRAFANA_SERVICE_ACCOUNT_TOKEN
+  category: saas
+  provider: grafana
+  token_type: service_account_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8})(?:[^A-Fa-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Grafana service account token.
+  rotation_url: https://grafana.com/docs/grafana/latest/administration/service-accounts/
+  references:
+  - https://grafana.com/docs/grafana/latest/administration/service-accounts/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: VERCEL_ACCESS_TOKEN
+  category: cicd
+  provider: vercel
+  token_type: access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(vca_[A-Za-z0-9]{50,80})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Vercel access token (vca_ prefix, current format).
+  rotation_url: https://vercel.com/account/tokens
+  references:
+  - https://vercel.com/docs/rest-api/authentication
+  - https://vercel.com/changelog/new-token-formats-and-secret-scanning
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: NETLIFY_ACCESS_TOKEN
+  category: cicd
+  provider: netlify
+  token_type: personal_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(nfp_[A-Za-z0-9]{40,64})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Netlify personal access token (nfp_ prefix, current format).
+  rotation_url: https://app.netlify.com/user/applications#personal-access-tokens
+  references:
+  - https://developers.netlify.com/guides/generating-personal-access-tokens-with-netlify-oauth/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: FLYIO_TOKEN
+  category: cicd
+  provider: flyio
+  token_type: access_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_-]|^)((?:fo1_|fm1[ar]_|fm2_)[A-Za-z0-9_-]{40,200})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 50
+  severity: P1
+  default_rotation_hours: 4
+  description: Fly.io access token (macaroon, fo1_/fm1a_/fm1r_/fm2_ prefixes).
+  rotation_url: https://fly.io/docs/security/tokens/
+  references:
+  - https://fly.io/docs/security/tokens/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CIRCLECI_TOKEN
+  category: cicd
+  provider: circleci
+  token_type: personal_api_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(CCI[Pp]?[A-Z0-9]{40,64})(?:[^A-Za-z0-9_]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: CircleCI personal or project API token.
+  rotation_url: https://app.circleci.com/settings/user/tokens
+  references:
+  - https://circleci.com/docs/managing-api-tokens/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: BUILDKITE_AGENT_TOKEN
+  category: cicd
+  provider: buildkite
+  token_type: agent_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(bkua_[a-f0-9]{40,80})(?:[^a-f0-9]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Buildkite agent token.
+  rotation_url: https://buildkite.com/organizations/-/agents
+  references:
+  - https://buildkite.com/docs/agent/v3/tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: TERRAFORM_CLOUD_TOKEN
+  category: cicd
+  provider: hashicorp
+  token_type: terraform_cloud_api_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_.=-]|^)([A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_=-]{60,80})(?:[^A-Za-z0-9_=-]|$)
+  entropy_min: 4.0
+  min_length: 80
+  severity: P0
+  default_rotation_hours: 1
+  description: Terraform Cloud / HCP Terraform API token.
+  rotation_url: https://app.terraform.io/app/settings/tokens
+  references:
+  - https://developer.hashicorp.com/terraform/cloud-docs/users-teams-organizations/api-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ARGOCD_TOKEN
+  category: cicd
+  provider: argocd
+  token_type: account_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_.=-]|^)(eyJ[A-Za-z0-9_-]{20,80}\.eyJ[A-Za-z0-9_-]{20,400}\.[A-Za-z0-9_-]{20,80})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 80
+  label_required:
+  - argocd
+  - ARGOCD_TOKEN
+  - argo-cd
+  label_byte_window: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: Argo CD account JWT token. Label-gated (JWTs are not unique to Argo CD).
+  rotation_url: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/
+  references:
+  - https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_account_generate-token/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: OCTOPUS_DEPLOY_API_KEY
+  category: cicd
+  provider: octopus
+  token_type: api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9-]|^)(API-[A-Z0-9]{26})(?:[^A-Za-z0-9-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Octopus Deploy API key.
+  rotation_url: https://octopus.com/docs/octopus-rest-api/how-to-create-an-api-key
+  references:
+  - https://octopus.com/docs/octopus-rest-api
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HARNESS_API_KEY
+  category: cicd
+  provider: harness
+  token_type: pat_or_sat
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_.-]|^)((?:pat|sat)\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{20})(?:[^A-Za-z0-9_-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Harness CD personal or service access token.
+  rotation_url: https://developer.harness.io/docs/platform/automation/api/add-and-manage-api-keys/
+  references:
+  - https://developer.harness.io/docs/platform/automation/api/add-and-manage-api-keys/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DOCKERHUB_PAT
+  category: registry
+  provider: dockerhub
+  token_type: personal_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(dckr_pat_[A-Za-z0-9_-]{27,40})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Docker Hub personal access token.
+  rotation_url: https://hub.docker.com/settings/security
+  references:
+  - https://docs.docker.com/security/for-developers/access-tokens/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ARTIFACTORY_REFERENCE_TOKEN
+  category: registry
+  provider: jfrog
+  token_type: artifactory_reference_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)(cmVmd[A-Za-z0-9]{59})(?:[^A-Za-z0-9]|$)
+  entropy_min: 4.5
+  min_length: 64
+  severity: P1
+  default_rotation_hours: 4
+  description: JFrog Artifactory reference token.
+  rotation_url: https://jfrog.com/help/r/jfrog-platform-administration-documentation/access-tokens
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SQUARE_ACCESS_TOKEN
+  category: payment
+  provider: square
+  token_type: access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)((?:EAAA|sq0atp-)[A-Za-z0-9_-]{20,60})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Square access token (EAAA or sq0atp- prefix).
+  rotation_url: https://developer.squareup.com/apps
+  references:
+  - https://developer.squareup.com/docs/build-basics/access-tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PLAID_CLIENT_SECRET
+  category: payment
+  provider: plaid
+  token_type: client_secret
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9]|^)([A-Za-z0-9]{30})(?:[^A-Za-z0-9]|$)
+  entropy_min: 3.5
+  min_length: 30
+  label_required:
+  - plaid
+  - PLAID_SECRET
+  - PLAID_CLIENT_SECRET
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: Plaid client secret. Label-gated.
+  rotation_url: https://dashboard.plaid.com/team/keys
+  references:
+  - https://plaid.com/docs/api/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PLAID_ACCESS_TOKEN_PRODUCTION
+  category: payment
+  provider: plaid
+  token_type: access_token_production
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(access-production-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Plaid production access token (item-scoped). Per codex P2 review (2026-05-20), split from sandbox/dev because production keys are the only ones that touch real bank data.
+  rotation_url: https://plaid.com/docs/api/items/
+  references:
+  - https://plaid.com/docs/api/items/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PLAID_ACCESS_TOKEN_NONPROD
+  category: payment
+  provider: plaid
+  token_type: access_token_nonprod
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(access-(?:sandbox|development)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[^A-Za-z0-9_-]|$)
+  severity: P2
+  default_rotation_hours: 24
+  description: Plaid sandbox or development access token (item-scoped). Advisory severity; no real bank data exposure.
+  rotation_url: https://plaid.com/docs/api/items/
+  references:
+  - https://plaid.com/docs/api/items/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: FLUTTERWAVE_SECRET_KEY
+  category: payment
+  provider: flutterwave
+  token_type: secret_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_-]|^)(FLWSECK-[a-h0-9]{32}-X)(?:[^A-Za-z0-9_-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Flutterwave secret key.
+  rotation_url: https://dashboard.flutterwave.com/dashboard/settings/apis
+  references:
+  - https://developer.flutterwave.com/docs/api-authentication
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: GOCARDLESS_API_TOKEN
+  category: payment
+  provider: gocardless
+  token_type: api_access_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_=-]|^)(live_[A-Za-z0-9_=-]{40})(?:[^A-Za-z0-9_=-]|$)
+  label_required:
+  - gocardless
+  - GOCARDLESS_TOKEN
+  - GC_ACCESS_TOKEN
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: GoCardless live API token. Label-gated.
+  rotation_url: https://manage.gocardless.com/developers
+  references:
+  - https://developer.gocardless.com/api-reference/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AUTH0_CLIENT_SECRET
+  category: identity
+  provider: auth0
+  token_type: client_secret
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_-]|^)([A-Za-z0-9_-]{64})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 64
+  label_required:
+  - auth0
+  - AUTH0_CLIENT_SECRET
+  label_byte_window: 64
+  severity: P0
+  default_rotation_hours: 1
+  description: Auth0 application client secret. Label-gated.
+  rotation_url: https://manage.auth0.com/dashboard/
+  references:
+  - https://auth0.com/docs/secure/application-credentials
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: JWT_GENERIC
+  category: identity
+  provider: generic
+  token_type: json_web_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_=-]|^)(eyJ[A-Za-z0-9_=-]{17,400}\.eyJ[A-Za-z0-9_=-]{17,400}\.[A-Za-z0-9_=-]{17,200})(?:[^A-Za-z0-9_=-]|$)
+  entropy_min: 4.5
+  min_length: 80
+  severity: P1
+  default_rotation_hours: 4
+  description: Generic JWT. The Rust scanner JSON-decodes the header to confirm; raw shape match is the prefilter only.
+  rotation_url: n/a
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc7519
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: OKTA_USER_TOKEN
+  category: identity
+  provider: okta
+  token_type: ssws_user_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9=_-]|^)(00[A-Za-z0-9=_-]{40})(?:[^A-Za-z0-9=_-]|$)
+  entropy_min: 4.0
+  min_length: 42
+  label_required:
+  - okta
+  - SSWS
+  - OKTA_API_TOKEN
+  label_byte_window: 32
+  severity: P0
+  default_rotation_hours: 1
+  description: Okta SSWS user API token. Label-gated.
+  rotation_url: https://developer.okta.com/docs/guides/create-an-api-token/main/
+  references:
+  - https://developer.okta.com/docs/guides/create-an-api-token/main/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HASHICORP_VAULT_SERVICE_TOKEN
+  category: secret_mgr
+  provider: hashicorp
+  token_type: vault_service_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_.-]|^)(hvs\.[A-Za-z0-9_-]{90,120})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 90
+  severity: P0
+  default_rotation_hours: 1
+  description: HashiCorp Vault service token (hvs. prefix).
+  rotation_url: https://developer.hashicorp.com/vault/docs/concepts/tokens
+  references:
+  - https://developer.hashicorp.com/vault/docs/concepts/tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HASHICORP_VAULT_BATCH_TOKEN
+  category: secret_mgr
+  provider: hashicorp
+  token_type: vault_batch_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_.-]|^)(hvb\.[A-Za-z0-9_-]{138,300})(?:[^A-Za-z0-9_-]|$)
+  entropy_min: 4.0
+  min_length: 138
+  severity: P0
+  default_rotation_hours: 1
+  description: HashiCorp Vault batch token (hvb. prefix).
+  rotation_url: https://developer.hashicorp.com/vault/docs/concepts/tokens
+  references:
+  - https://developer.hashicorp.com/vault/docs/concepts/tokens
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: AGE_SECRET_KEY
+  category: secret_mgr
+  provider: filippo
+  token_type: age_x25519_secret
+  strategy: regex
+  regex: (AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58})
+  severity: P0
+  default_rotation_hours: 0
+  description: age encryption tool x25519 secret key. Used by SOPS encryption (this project's secret management). Rotate immediately on detection.
+  rotation_url: https://age-encryption.org/
+  references:
+  - https://github.com/FiloSottile/age
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: ONEPASSWORD_SERVICE_ACCOUNT_TOKEN
+  category: secret_mgr
+  provider: onepassword
+  token_type: service_account_token
+  strategy: regex_with_entropy
+  regex: (?:[^A-Za-z0-9_+/=]|^)(ops_eyJ[A-Za-z0-9+/=]{250,})(?:[^A-Za-z0-9+/=]|$)
+  entropy_min: 4.0
+  min_length: 250
+  severity: P0
+  default_rotation_hours: 1
+  description: 1Password service account token.
+  rotation_url: https://my.1password.com/integrations
+  references:
+  - https://developer.1password.com/docs/service-accounts/
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: DOPPLER_SERVICE_TOKEN
+  category: secret_mgr
+  provider: doppler
+  token_type: service_token
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_.-]|^)(dp\.(?:st|pt|ct|sa|scim|audit|deploy)\.[A-Za-z0-9]{40,64})(?:[^A-Za-z0-9_.-]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: 'Doppler service / personal / CLI token. Note: Control Zero decommissioned Doppler in 2026-04, but customer projects may still reference it.'
+  rotation_url: https://dashboard.doppler.com/workplace/settings
+  references:
+  - https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SSH_PRIVATE_KEY_OPENSSH
+  category: secret_mgr
+  provider: openssh
+  token_type: openssh_private_key
+  strategy: marker_block
+  begin_marker: '-----BEGIN OPENSSH PRIVATE KEY-----'
+  end_marker: '-----END OPENSSH PRIVATE KEY-----'
+  max_block_bytes: 16384
+  severity: P0
+  default_rotation_hours: 0
+  description: OpenSSH private key (ed25519, RSA, ECDSA encoded in the OpenSSH key format).
+  rotation_url: https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+  references:
+  - https://datatracker.ietf.org/doc/html/draft-miller-ssh-agent
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SSH_PRIVATE_KEY_RSA
+  category: secret_mgr
+  provider: openssh
+  token_type: rsa_private_key
+  strategy: marker_block
+  begin_marker: '-----BEGIN RSA PRIVATE KEY-----'
+  end_marker: '-----END RSA PRIVATE KEY-----'
+  max_block_bytes: 16384
+  severity: P0
+  default_rotation_hours: 0
+  description: RSA private key (legacy PEM format).
+  rotation_url: https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc8017
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: SSH_PRIVATE_KEY_EC
+  category: secret_mgr
+  provider: openssh
+  token_type: ec_private_key
+  strategy: marker_block
+  begin_marker: '-----BEGIN EC PRIVATE KEY-----'
+  end_marker: '-----END EC PRIVATE KEY-----'
+  max_block_bytes: 16384
+  severity: P0
+  default_rotation_hours: 0
+  description: Elliptic curve private key (PEM format).
+  rotation_url: https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc5915
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PRIVATE_KEY_PKCS8
+  category: secret_mgr
+  provider: generic
+  token_type: pkcs8_private_key
+  strategy: marker_block
+  begin_marker: '-----BEGIN PRIVATE KEY-----'
+  end_marker: '-----END PRIVATE KEY-----'
+  max_block_bytes: 16384
+  severity: P0
+  default_rotation_hours: 0
+  description: PKCS#8-encoded private key (generic; covers TLS server keys, service account keys, SSH host keys).
+  rotation_url: n/a
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc5208
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PGP_PRIVATE_KEY
+  category: secret_mgr
+  provider: gnupg
+  token_type: pgp_private_key
+  strategy: marker_block
+  begin_marker: '-----BEGIN PGP PRIVATE KEY BLOCK-----'
+  end_marker: '-----END PGP PRIVATE KEY BLOCK-----'
+  max_block_bytes: 32768
+  severity: P0
+  default_rotation_hours: 0
+  description: PGP / GnuPG private key block.
+  rotation_url: https://gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc4880
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: PKCS12_CERTIFICATE_FILE
+  category: secret_mgr
+  provider: generic
+  token_type: pkcs12_file_reference
+  strategy: regex
+  regex: ([\\/][^\s"']{1,200}\.(?:p12|pfx))(?:[^A-Za-z0-9._-]|$)
+  severity: P1
+  default_rotation_hours: 4
+  description: Path reference to a PKCS#12 certificate file. The file itself contains a private key + certificate chain.
+  rotation_url: n/a
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc7292
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HIGH_ENTROPY_NEAR_ASSIGNMENT
+  category: generic
+  provider: generic
+  token_type: generic_high_entropy
+  strategy: regex_with_entropy
+  regex: (?i)(?:token|secret|password|passwd|api[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret)\s*[:=]\s*["']?([A-Za-z0-9+/_=-]{32,200})["']?
+  entropy_min: 4.5
+  min_length: 32
+  severity: P2
+  default_rotation_hours: 24
+  description: Generic high-entropy string in an assignment to a credential-named identifier. Per the codex P1 reconciliation in the main design, this replaces the original blanket high-entropy-generic-32 detector. Anchored on credential-named keys to suppress hashes/build IDs/UUIDs.
+  rotation_url: n/a
+  references:
+  - Codex P1 review of credential-leak-detection.md, 2026-05-20
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: HTTP_BASIC_AUTH_URL
+  category: generic
+  provider: generic
+  token_type: basic_auth_in_url
+  strategy: regex
+  regex: (https?://[^:@\s/]+:)([^@\s/]{4,128})(@[^\s]+)
+  severity: P1
+  default_rotation_hours: 4
+  description: HTTP Basic Auth credentials in a URL (user:password@host).
+  rotation_url: n/a
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc7617
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: BEARER_TOKEN_LABEL
+  category: generic
+  provider: generic
+  token_type: bearer_token
+  strategy: regex_with_entropy
+  regex: (?:^|[^A-Za-z])[Bb]earer\s+([A-Za-z0-9_.=+/-]{20,500})
+  entropy_min: 4.0
+  min_length: 20
+  severity: P1
+  default_rotation_hours: 4
+  description: 'Authorization: Bearer <token>. Label-anchored on the Bearer keyword.'
+  rotation_url: n/a
+  references:
+  - https://datatracker.ietf.org/doc/html/rfc6750
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CONTROLZERO_LIVE_KEY
+  category: czero
+  provider: controlzero
+  token_type: live_api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(cz_live_[A-Za-z0-9]{32,64})(?:[^A-Za-z0-9_]|$)
+  severity: P0
+  default_rotation_hours: 1
+  description: Control Zero live API key.
+  rotation_url: https://app.controlzero.ai/settings/api-keys
+  references:
+  - 'internal: docs/SDK_LOCAL_LAYOUT.md'
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
+- id: CONTROLZERO_TEST_KEY
+  category: czero
+  provider: controlzero
+  token_type: test_api_key
+  strategy: regex
+  regex: (?:[^A-Za-z0-9_]|^)(cz_test_[A-Za-z0-9]{32,64})(?:[^A-Za-z0-9_]|$)
+  severity: P2
+  default_rotation_hours: 24
+  description: Control Zero test API key. Advisory severity.
+  rotation_url: https://app.controlzero.ai/settings/api-keys
+  references:
+  - 'internal: docs/SDK_LOCAL_LAYOUT.md'
+  sample_anonymized: REDACTED_IN_PUBLIC_MIRROR
