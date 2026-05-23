@@ -20,7 +20,7 @@ patterns:
   provider: aws
   token_type: secret_access_key
   strategy: regex_with_paired_token
-  regex: (?:[^A-Za-z0-9/+=]|^)([A-Za-z0-9/+=]{40})(?:[^A-Za-z0-9/+=]|$)
+  regex: (?:[^A-Za-z0-9/+]|^)([A-Za-z0-9/+=]{40})(?:[^A-Za-z0-9/+=]|$)
   entropy_min: 4.5
   min_length: 40
   paired_with: AWS_ACCESS_KEY_ID
@@ -42,7 +42,7 @@ patterns:
   provider: aws
   token_type: session_token
   strategy: regex_with_entropy
-  regex: (?:[^A-Za-z0-9/+=]|^)(FwoG[A-Za-z0-9/+=]{50,})(?:[^A-Za-z0-9/+=]|$)
+  regex: (?:[^A-Za-z0-9/+]|^)(FwoG[A-Za-z0-9/+=]{50,})(?:[^A-Za-z0-9/+=]|$)
   entropy_min: 4.5
   min_length: 200
   severity: P0
