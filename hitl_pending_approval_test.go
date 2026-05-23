@@ -619,6 +619,102 @@ func TestWaitUnknownStateKeepsPollingUntilTimeout(t *testing.T) {
 	}
 }
 
+// gh#707: backend sweeper marks the row state='expired'. The wait loop
+// must surface *HITLTimeoutError on the first poll that observes that
+// state, NOT idle through its own backoff schedule until DeadlineAt.
+func TestWaitExpiredStateRaisesTimeoutWithinOnePoll(t *testing.T) {
+	// Generous 5-minute deadline: a regression that "keeps polling"
+	// would surface as multiple poll calls and nonzero sleeps; the
+	// fix is observable as exactly 1 poll, 0 sleeps.
+	pa, err := NewPendingApproval("r", 300.0, "k", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pollCalls := 0
+	pollFn := func(string) (PollResponse, error) {
+		pollCalls++
+		return PollResponse{"id": "r", "state": StatusExpired}, nil
+	}
+	sleepCalls := 0
+	_, err = pa.WaitInjected(pollFn, func(time.Duration) {
+		sleepCalls++
+	})
+	if err == nil {
+		t.Fatal("expected *HITLTimeoutError")
+	}
+	var hto *HITLTimeoutError
+	if !errors.As(err, &hto) {
+		t.Errorf("expected *HITLTimeoutError, got %T: %v", err, err)
+	}
+	if !errors.Is(err, ErrPolicyDenied) {
+		t.Error("expired -> timeout error must satisfy errors.Is(err, ErrPolicyDenied)")
+	}
+	if pa.Status != StatusTimedOut {
+		t.Errorf("Status = %q, want timed_out", pa.Status)
+	}
+	if pollCalls != 1 {
+		t.Errorf("pollCalls = %d, want 1 (sweeper-driven expired must bail immediately)", pollCalls)
+	}
+	if sleepCalls != 0 {
+		t.Errorf("sleepCalls = %d, want 0 (no idle after expired)", sleepCalls)
+	}
+	if pa.Decision == nil || pa.Decision.Effect != "deny" {
+		t.Errorf("Decision missing or wrong: %+v", pa.Decision)
+	}
+}
+
+// gh#707: pending tick followed by expired tick still bails on the
+// expired observation, not on the local deadline.
+func TestWaitExpiredAfterPendingBailsOnExpiredTick(t *testing.T) {
+	pa, err := NewPendingApproval("r", 300.0, "k", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pollCalls := 0
+	pollFn := func(string) (PollResponse, error) {
+		pollCalls++
+		if pollCalls == 1 {
+			return PollResponse{"id": "r", "state": StatusPending}, nil
+		}
+		return PollResponse{"id": "r", "state": StatusExpired}, nil
+	}
+	sleepCalls := 0
+	_, err = pa.WaitInjected(pollFn, func(time.Duration) {
+		sleepCalls++
+	})
+	var hto *HITLTimeoutError
+	if !errors.As(err, &hto) {
+		t.Errorf("expected *HITLTimeoutError, got %T: %v", err, err)
+	}
+	if pa.Status != StatusTimedOut {
+		t.Errorf("Status = %q, want timed_out", pa.Status)
+	}
+	if pollCalls != 2 {
+		t.Errorf("pollCalls = %d, want 2", pollCalls)
+	}
+	// One sleep between the two polls; no further sleeps after
+	// the expired observation.
+	if sleepCalls != 1 {
+		t.Errorf("sleepCalls = %d, want 1", sleepCalls)
+	}
+}
+
+func TestStatusExpiredWireConstant(t *testing.T) {
+	// gh#707: wire-level constant exposed for callers that match
+	// against the backend's sweeper output. NOT part of validStatuses
+	// (the SDK has no `expired` terminal -- it collapses onto
+	// timed_out).
+	if StatusExpired != "expired" {
+		t.Errorf("StatusExpired = %q, want %q", StatusExpired, "expired")
+	}
+	if IsValidStatus(StatusExpired) {
+		t.Error("StatusExpired must NOT be a valid SDK status (it is wire-only)")
+	}
+	if IsTerminalStatus(StatusExpired) {
+		t.Error("StatusExpired must NOT be a terminal SDK status (mapped onto timed_out)")
+	}
+}
+
 func TestWaitNilPollFnErrors(t *testing.T) {
 	pa := makeApproval(t)
 	_, err := pa.WaitInjected(nil, func(time.Duration) {})

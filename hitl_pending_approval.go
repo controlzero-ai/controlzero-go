@@ -36,11 +36,19 @@ import (
 
 // HITL status string values. Wire format from
 // GET /api/approval-requests/{id}.
+//
+// StatusExpired is the wire-level value the backend approval sweeper
+// writes when an `approval_requests` row passes its `expires_at` while
+// still pending. It is NOT a distinct SDK terminal state -- the
+// polling loop maps it onto StatusTimedOut so consumers see a single
+// *HITLTimeoutError for any timeout source (server sweeper or local
+// deadline). gh#707.
 const (
 	StatusPending  = "pending"
 	StatusApproved = "approved"
 	StatusDenied   = "denied"
 	StatusTimedOut = "timed_out"
+	StatusExpired  = "expired"
 )
 
 // Cadence constants per the design doc. Held as package vars so tests
@@ -306,6 +314,10 @@ func makeApproveDecision(reason string) *PolicyDecision {
 //
 // On a deny response, the returned error is *PolicyDeniedError so the
 // caller can errors.As / errors.Is on it.
+//
+// On a wire-level "expired" response (backend sweeper authoritatively
+// flipped the row to expired -- gh#707), the returned error is
+// *HITLTimeoutError so the SDK does not idle until its own deadline.
 func (p *PendingApproval) applyPollResponse(resp PollResponse) (bool, error) {
 	state, _ := resp["state"].(string)
 	switch state {
@@ -327,6 +339,14 @@ func (p *PendingApproval) applyPollResponse(resp PollResponse) (bool, error) {
 			return false, err
 		}
 		return false, &PolicyDeniedError{Decision: *decision}
+	case StatusExpired:
+		// Backend sweeper authoritatively marked this row expired
+		// (apps/control-zero-platform/backend/internal/workers/
+		// approval_sweeper.go). Collapse onto the same StatusTimedOut
+		// terminal + *HITLTimeoutError the local deadline path
+		// produces; consumers see a single error type for any
+		// timeout regardless of source. gh#707.
+		return false, p.triggerTimeout()
 	default:
 		// Pending, unknown state, or missing key. Keep looping;
 		// deadline enforcement bails the loop out.
