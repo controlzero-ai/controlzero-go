@@ -44,7 +44,7 @@ No API key. No signup. Run it.
 ## Install
 
 ```bash
-go get controlzero.ai/sdk/go@v1.6.1
+go get controlzero.ai/sdk/go@v1.7.6
 ```
 
 Pin to a specific version for reproducible builds. The version source of
@@ -65,12 +65,17 @@ controlzero test delete_file
 The generated `controlzero.yaml` is the tutorial. It ships with annotated
 rules covering allow lists, deny lists, wildcards, and the catch-all.
 
-Templates available:
+Templates available (`controlzero init -t <name>`):
 
-- `controlzero init` - Hello World template (default)
-- `controlzero init -t rag` - RAG agent template (block exfiltration)
-- `controlzero init -t mcp` - MCP server template
-- `controlzero init -t cost-cap` - model allow-listing and cost guards
+- `generic` - Hello World template (default)
+- `rag` - RAG agent template (block exfiltration)
+- `mcp` - MCP server template
+- `cost-cap` - model allow-listing and cost guards
+- `claude-code` - Claude Code hook starter
+- `langchain` - LangChain tool guardrails
+- `crewai` - CrewAI starter policy
+- `cursor` - Cursor / editor hook starter
+- `autogen` - AutoGen starter policy
 
 ## Loading a policy
 
