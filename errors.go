@@ -46,6 +46,20 @@ type PolicyDecision struct {
 	// can always SELECT gate_matched without special-casing by
 	// surface.
 	GateMatched string
+
+	// RequiresApproval indicates the policy engine decided this call
+	// needs a human-in-the-loop grant before it can proceed. HITL
+	// Phase 2d (Go-SDK port). Defaults to false (omitempty in any
+	// JSON serialisation downstream), so older callers and rules that
+	// never set the field keep their pre-2d behaviour exactly.
+	RequiresApproval bool
+	// ApprovalAction is the canonical action label the SDK ships to
+	// the grants endpoint when RequiresApproval is true. Pointer so a
+	// nil value is distinguishable from a deliberate empty string
+	// (the wire shape omits the field on nil). Mirrors the optional
+	// approval_action attribute on the Python and Node LLM decision
+	// envelopes.
+	ApprovalAction *string
 }
 
 // PolicyEngineVersion is the version of the policy engine the SDK is
