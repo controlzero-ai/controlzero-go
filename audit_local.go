@@ -28,13 +28,27 @@ type LocalAuditLogger struct {
 
 // LocalAuditOptions configures the local audit sink.
 type LocalAuditOptions struct {
-	LogPath        string
-	MaxSizeMB      int    // size-based rotation; 0 = no rotation
-	MaxBackups     int    // how many rotated files to keep
-	MaxAgeDays     int    // delete rotated files older than N days
-	Compress       bool   // gzip rotated files
-	Format         string // "json" (default) or "pretty"
+	LogPath    string
+	MaxSizeMB  int    // size-based rotation; 0 -> defaultMaxSizeMB
+	MaxBackups int    // how many rotated files to keep; 0 -> defaultMaxBackups
+	MaxAgeDays int    // delete rotated files older than N days
+	Compress   bool   // gzip rotated files
+	Format     string // "json" (default) or "pretty"
 }
+
+// defaultMaxBackups bounds the rotated-backup set when the caller leaves
+// MaxBackups at 0. lumberjack treats MaxBackups==0 as "keep ALL backups",
+// which is an unbounded-disk footgun (#890: same class as the #744/#745
+// disk incidents). We coerce 0 to this bounded default so a local audit
+// log can never silently grow without limit. Callers who genuinely want
+// unbounded retention can set a very large value explicitly.
+const defaultMaxBackups = 7
+
+// defaultMaxSizeMB is the per-file size cap applied when the caller leaves
+// MaxSizeMB at 0. Without it lumberjack never rotates on size, so the
+// active file can grow unbounded between backups. 10 MB matches the
+// operator runbook default shared with the Node/Python SDKs.
+const defaultMaxSizeMB = 10
 
 // NewLocalAuditLogger constructs a sink. If the path is unwritable, all
 // subsequent writes go to stderr instead.
@@ -74,10 +88,22 @@ func NewLocalAuditLogger(opts LocalAuditOptions) *LocalAuditLogger {
 	}
 	_ = f.Close()
 
+	// Coerce unbounded defaults to bounded ones. lumberjack's zero values
+	// mean "no size limit" (MaxSize) and "keep all backups" (MaxBackups),
+	// either of which lets the log stream grow until the disk fills. #890.
+	maxBackups := opts.MaxBackups
+	if maxBackups == 0 {
+		maxBackups = defaultMaxBackups
+	}
+	maxSizeMB := opts.MaxSizeMB
+	if maxSizeMB == 0 {
+		maxSizeMB = defaultMaxSizeMB
+	}
+
 	l.writer = &lumberjack.Logger{
 		Filename:   opts.LogPath,
-		MaxSize:    opts.MaxSizeMB,
-		MaxBackups: opts.MaxBackups,
+		MaxSize:    maxSizeMB,
+		MaxBackups: maxBackups,
 		MaxAge:     opts.MaxAgeDays,
 		Compress:   opts.Compress,
 	}
