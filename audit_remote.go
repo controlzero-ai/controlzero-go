@@ -211,6 +211,10 @@ func (s *BearerAuditSink) postBatch(batch []map[string]any) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	// W3C Trace Context origination (#955): inject a child traceparent +
+	// correlation headers so this audit submission is correlated end to end
+	// (the gateway continues the same trace-id).
+	injectTraceContext(req)
 	// HITL-5d: optional operator identity header. Server-side resolver
 	// maps email -> user_id and stamps it on every audit row, so HITL
 	// approvals can attribute a shared API key to the right human.
