@@ -5,6 +5,7 @@
 package controlzero
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -165,12 +166,104 @@ var ErrHybridMode = errors.New(
 	"controlzero: explicit local policy overrides the hosted bundle (strict_hosted=true)",
 )
 
+// defaultAuthRemediation is the copy-pasteable next step shown when the
+// backend sends no structured 401 body.
+const defaultAuthRemediation = "Generate a new API key in the dashboard " +
+	"(Settings -> API Keys, https://app.controlzero.ai/settings/api-keys) " +
+	"and set CONTROLZERO_API_KEY to it."
+
 // HostedAuthError is returned when the project API key is rejected by
 // the backend (401/403). Permanent: retrying with the same key will not
-// help.
-type HostedAuthError struct{ Msg string }
+// help. Maps to E1101.
+//
+// #1254: the bare "API key rejected (401)" gave the user no idea
+// WHY or what to do. The Error() string now always says the key is
+// invalid/revoked/expired and how to fix it. When the backend supplies a
+// structured 401 body, Reason + Remediation are preserved so programmatic
+// callers can branch on Reason while humans read the actionable message.
+// The backend keeps Reason coarse on purpose (not_found / revoked /
+// expired / placeholder all collapse to "invalid_or_revoked") so a 401 is
+// never an enumeration oracle; the SDK does not try to refine it.
+type HostedAuthError struct {
+	// Msg is the headline. When empty, a default actionable headline is used.
+	Msg string
+	// Reason is the coarse machine-readable reason from the backend, or ""
+	// when the backend sent no structured body (older backend).
+	Reason string
+	// Remediation is the copy-pasteable next step. Defaults to
+	// defaultAuthRemediation when empty.
+	Remediation string
+}
 
-func (e *HostedAuthError) Error() string { return "controlzero: " + e.Msg }
+func (e *HostedAuthError) Error() string {
+	headline := e.Msg
+	if headline == "" {
+		headline = "Your Control Zero API key was rejected by the backend " +
+			"(invalid, revoked, or expired)."
+	}
+	remediation := e.Remediation
+	if remediation == "" {
+		remediation = defaultAuthRemediation
+	}
+	return "controlzero: " + headline + " " + remediation
+}
+
+// newHostedAuthError builds a HostedAuthError from a backend 401/403 body.
+// body is the raw response bytes; a non-JSON or empty body just yields the
+// actionable default (never panics). context is an optional phrase like
+// "during bundle pull" added to the headline. The structured fields may be
+// at the top level (reason) or nested under "error"; both are read.
+func newHostedAuthError(body []byte, context string) *HostedAuthError {
+	var reason, remediation, backendMsg string
+	if len(body) > 0 {
+		var parsed struct {
+			Reason      string `json:"reason"`
+			Remediation string `json:"remediation"`
+			Message     string `json:"message"`
+			Error       struct {
+				Reason      string `json:"reason"`
+				Remediation string `json:"remediation"`
+				Message     string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(body, &parsed); err == nil {
+			reason = firstNonEmpty(parsed.Reason, parsed.Error.Reason)
+			remediation = firstNonEmpty(parsed.Remediation, parsed.Error.Remediation)
+			backendMsg = firstNonEmpty(parsed.Message, parsed.Error.Message)
+		}
+		// Back-compat: some backends put a plain string in the top-level
+		// "error" key (e.g. {"error":"key revoked"}) instead of the nested
+		// object. Read it as the backend message when present so its text is
+		// still surfaced. (Our own coarse backend never sends such a string;
+		// it uses the structured object above.)
+		if backendMsg == "" {
+			var topErr struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(body, &topErr); err == nil {
+				backendMsg = topErr.Error
+			}
+		}
+	}
+
+	headline := "Your Control Zero API key was rejected by the backend (invalid, revoked, or expired)."
+	if context != "" {
+		headline = "Your Control Zero API key was rejected by the backend " + context + " (invalid, revoked, or expired)."
+	}
+	if backendMsg != "" && backendMsg != "invalid API key" {
+		headline = headline + " (backend: " + backendMsg + ")"
+	}
+	return &HostedAuthError{Msg: headline, Reason: reason, Remediation: remediation}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // HostedBootstrapError is returned when hosted mode cannot initialize
 // (backend unreachable, malformed response, etc.) AND no cached bundle

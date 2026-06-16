@@ -180,7 +180,8 @@ func fetchBootstrap(ctx context.Context, apiKey, apiURL string) (*bootstrapKeys,
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, &HostedAuthError{Msg: "API key rejected by backend. Check that CONTROLZERO_API_KEY is a valid cz_live_ or cz_test_ project key."}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, newHostedAuthError(body, "")
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
@@ -370,7 +371,8 @@ func pullBundle(ctx context.Context, apiKey, apiURL, cachedETag string) ([]byte,
 		return nil, "", nil
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, "", &HostedAuthError{Msg: "API key rejected during bundle pull."}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, "", newHostedAuthError(body, "during bundle pull")
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 500))

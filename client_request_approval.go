@@ -266,11 +266,7 @@ func (c *Client) RequestApproval(ctx context.Context, decision PolicyDecision, o
 		return nil, NewHITLIdentityClaimRejected(msg)
 	}
 	if status == 401 {
-		msg := bodyMsg
-		if msg == "" {
-			msg = "hosted API key rejected by backend"
-		}
-		return nil, &HostedAuthError{Msg: msg}
+		return nil, newHostedAuthError(rawBody, "")
 	}
 	if status == 404 {
 		msg := bodyMsg

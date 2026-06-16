@@ -64,8 +64,8 @@ var errorCatalog = map[string]ErrorCodeRecord{
 	`E1101`: {
 		Code:  `E1101`,
 		Title: `API key rejected (401)`,
-		What:  `The hosted backend rejected the API key. The key is either revoked, from a different environment (test vs live), or never existed.`,
-		Fix:   `Check your dashboard for the current key under Settings → API Keys. Make sure CONTROLZERO_API_KEY matches the key shown there.`,
+		What:  `The hosted backend rejected the API key with HTTP 401. The key is unknown, revoked, expired, or a never-activated placeholder. For safety the backend does not say which (so a 401 cannot be used to probe which keys exist), but in every case the same fix applies: the key you are using is no longer valid.`,
+		Fix:   `Generate a fresh key in the dashboard under Settings -> API Keys (https://app.controlzero.ai/settings/api-keys) and set CONTROLZERO_API_KEY to it. If you just rotated a key, make sure the environment your agent runs in picked up the new value.`,
 		Doc:   `E1101-key-rejected`,
 	},
 	`E1102`: {

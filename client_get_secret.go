@@ -177,7 +177,7 @@ func (c *Client) GetSecret(ctx context.Context, name string, opts GetSecretOpts)
 		return "", NewSecretNotFound(fmt.Sprintf("secret %q not found", name))
 	}
 	if status == 401 {
-		return "", &HostedAuthError{Msg: "hosted API key rejected by backend"}
+		return "", newHostedAuthError(rawBody, "")
 	}
 	if status < 200 || status >= 300 {
 		return "", NewHITLBackendUnreachableError(
