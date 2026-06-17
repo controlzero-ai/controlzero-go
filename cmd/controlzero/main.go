@@ -20,6 +20,24 @@ import (
 
 const Version = "1.7.1"
 
+// policyFileExts are the policy-file extensions auto-discovered in cwd, in
+// precedence order. The loader accepts YAML and JSON (LoadPolicy dispatches on
+// the extension) and the library Client auto-discovers the same set; the CLI
+// matches it so a JSON-authored project is found without an explicit path.
+var policyFileExts = []string{".yaml", ".yml", ".json"}
+
+// firstExistingPolicyFile returns the first existing ./controlzero<ext> for
+// ext in policyFileExts (.yaml -> .yml -> .json), or "" if none exist.
+func firstExistingPolicyFile() string {
+	for _, ext := range policyFileExts {
+		candidate := "controlzero" + ext
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
 func main() {
 	root := &cobra.Command{
 		Use:   "controlzero",
@@ -88,12 +106,20 @@ func validateCmd() *cobra.Command {
 		Short: "Validate a policy file. Exits non-zero on errors.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := "controlzero.yaml"
+			var path string
 			if len(args) > 0 {
 				path = args[0]
-			}
-			if _, err := os.Stat(path); err != nil {
-				return fmt.Errorf("%s not found", path)
+				if _, err := os.Stat(path); err != nil {
+					return fmt.Errorf("%s not found", path)
+				}
+			} else {
+				// No explicit file: auto-discover controlzero.{yaml,yml,json}
+				// in cwd (first existing), matching the Client resolution
+				// order so a JSON-authored project validates without an arg.
+				path = firstExistingPolicyFile()
+				if path == "" {
+					return fmt.Errorf("no controlzero.yaml, controlzero.yml, or controlzero.json found in current directory")
+				}
 			}
 			rules, err := controlzero.LoadPolicy(path)
 			if err != nil {
