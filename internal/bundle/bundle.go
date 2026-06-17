@@ -405,6 +405,52 @@ func CheckMinSDKVersion(payload map[string]any, sdkVersion string) MinSDKResult 
 	return MinSDKResult{Refuse: true, Required: required, Actual: sdkVersion}
 }
 
+// RecommendedSDKResult is the structured outcome of
+// CheckRecommendedSDKVersion. Behind is true when the bundle's
+// metadata.recommended_sdk_version is strictly higher than the running
+// SDK version -- a SOFT signal (the caller prints one non-fatal warning),
+// distinct from min_sdk_version which is the HARD floor that refuses to
+// load. No-op (Behind:false) when the field is absent so every pre-existing
+// bundle is unaffected.
+type RecommendedSDKResult struct {
+	Behind      bool
+	Recommended string
+	Actual      string
+}
+
+// CheckRecommendedSDKVersion inspects
+// payload["metadata"]["recommended_sdk_version"] and returns
+// RecommendedSDKResult{Behind: true, ...} when the recommended version is
+// strictly newer than sdkVersion. Bundles without the field return
+// RecommendedSDKResult{} (back-compat). Pure function; no I/O.
+//
+// recommended_sdk_version is the SOFT counterpart to min_sdk_version:
+// min refuses to load (over-block risk); recommended only nudges the
+// operator to upgrade so enforcement/audit fixes that shipped in newer
+// SDKs reach them. Never changes enforcement.
+func CheckRecommendedSDKVersion(payload map[string]any, sdkVersion string) RecommendedSDKResult {
+	metaAny, ok := payload["metadata"]
+	if !ok {
+		return RecommendedSDKResult{}
+	}
+	meta, ok := metaAny.(map[string]any)
+	if !ok {
+		return RecommendedSDKResult{}
+	}
+	recAny, ok := meta["recommended_sdk_version"]
+	if !ok {
+		return RecommendedSDKResult{}
+	}
+	recommended, ok := recAny.(string)
+	if !ok || recommended == "" {
+		return RecommendedSDKResult{}
+	}
+	if !less(ParseVersionTuple(sdkVersion), ParseVersionTuple(recommended)) {
+		return RecommendedSDKResult{}
+	}
+	return RecommendedSDKResult{Behind: true, Recommended: recommended, Actual: sdkVersion}
+}
+
 // TranslateToLocalPolicy converts a decrypted bundle payload to the
 // local-mode policy map accepted by LoadPolicy. Sorts policies by
 // `priority` ascending so every SDK produces identical decisions from

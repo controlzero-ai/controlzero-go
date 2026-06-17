@@ -34,10 +34,38 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"controlzero.ai/sdk/go/internal/bundle"
 )
+
+// recommendedSDKNudgeOnce throttles the non-breaking upgrade nudge to one
+// stderr line per process, regardless of how many bundles load or how often
+// the policy refreshes. The nudge is purely informational -- it never changes
+// enforcement and never errors.
+var recommendedSDKNudgeOnce sync.Once
+
+// maybeWarnRecommendedSDK prints ONE non-fatal stderr warning per process if
+// the hosted bundle's metadata carries a recommended_sdk_version newer than
+// the running Version. No-op when the field is absent (back-compat) or when
+// the SDK is already at/above the recommendation.
+//
+// recommended_sdk_version is the SOFT signal: enforcement/audit fixes ship in
+// the SDK, so customers on old versions keep hitting fixed bugs until they
+// upgrade. The nudge points them at `controlzero update`. Distinct from the
+// HARD min_sdk_version floor (gh#602), which refuses to load the bundle.
+func maybeWarnRecommendedSDK(payload map[string]any) {
+	r := bundle.CheckRecommendedSDKVersion(payload, Version)
+	if !r.Behind {
+		return
+	}
+	recommendedSDKNudgeOnce.Do(func() {
+		fmt.Fprintf(os.Stderr,
+			"controlzero %s is behind the recommended %s; run 'controlzero update'\n",
+			r.Actual, r.Recommended)
+	})
+}
 
 const (
 	defaultAPIURL    = "https://api.controlzero.ai"
@@ -473,6 +501,10 @@ func loadHostedPolicy(ctx context.Context, apiKey, apiURL string) (map[string]an
 		}
 	}
 
+	// Non-breaking upgrade nudge: warn once per process if the bundle
+	// recommends a newer SDK than we run. Never changes enforcement.
+	maybeWarnRecommendedSDK(parsed.Payload)
+
 	return bundle.TranslateToLocalPolicy(parsed.Payload), parsed, nil
 }
 
@@ -501,6 +533,8 @@ func parseAndTranslate(
 			UpgradeCommand: "go get github.com/control-zero/controlzero@latest",
 		}
 	}
+	// Non-breaking upgrade nudge (cached / 304 path); warns once per process.
+	maybeWarnRecommendedSDK(parsed.Payload)
 	return bundle.TranslateToLocalPolicy(parsed.Payload), parsed, nil
 }
 

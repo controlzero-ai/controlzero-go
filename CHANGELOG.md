@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+CLI-only additions. The SDK package `controlzero.Version` (version.go,
+tag-driven) is unchanged; only the `controlzero` CLI binary version
+(cmd/controlzero/main.go) bumps 1.7.1 -> 1.8.0 for the new command.
+
+### Added
+
+- **`controlzero update`** -- self-update the CLI to the latest release.
+  Queries the Go module proxy `@latest` endpoint
+  (`https://proxy.golang.org/controlzero.ai/sdk/go/@latest`) with a 6s
+  timeout, shows `current -> latest`, prompts, then runs
+  `go install controlzero.ai/sdk/go/cmd/controlzero@latest`. Degrades
+  gracefully offline (prints the manual command, never panics). Flags:
+  `--check` (report only; exit 10 when behind, 0 current, 11 when the
+  proxy is unreachable) and `--yes`/`-y` (skip the prompt). Mirrors the
+  Python `controlzero update`. Version comparison is numeric, not
+  lexical (1.9.10 > 1.9.9).
+- **Non-breaking upgrade nudge.** When a hosted bundle's metadata carries
+  `recommended_sdk_version` higher than the running version, the SDK
+  prints ONE non-fatal stderr line per process pointing at
+  `controlzero update`. SOFT signal only -- never changes enforcement,
+  never errors, and is a no-op when the field is absent (back-compat).
+  Distinct from the HARD `min_sdk_version` floor (gh#602) that refuses
+  to load.
+
 ## v1.7.6 -- 2026-05-16 (HITL-5c, gh#540)
 
 Pure additive minor preparing for the HITL approval flow that ships

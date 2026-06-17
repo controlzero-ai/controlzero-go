@@ -4,6 +4,7 @@
 //	controlzero validate       Lint your policy file
 //	controlzero test <tool>    Dry-run a tool call against the policy
 //	controlzero tail           Print the local audit log
+//	controlzero update         Update the CLI to the latest release
 package main
 
 import (
@@ -18,7 +19,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "1.7.1"
+// Version is the CLI version. Bumped 1.7.1 -> 1.8.0 for the `controlzero
+// update` self-update command (and the non-breaking upgrade nudge). The
+// package-level controlzero.Version (version.go) is the SDK/library version
+// and is bumped on its own cadence via the git-tag drift guard.
+const Version = "1.8.0"
 
 // policyFileExts are the policy-file extensions auto-discovered in cwd, in
 // precedence order. The loader accepts YAML and JSON (LoadPolicy dispatches on
@@ -49,7 +54,8 @@ Get started in 30 seconds:
   controlzero init           Write a sample policy.yaml
   controlzero validate       Lint your policy file
   controlzero test <tool>    Dry-run a tool call against the policy
-  controlzero tail           Print the local audit log`,
+  controlzero tail           Print the local audit log
+  controlzero update         Update the CLI to the latest release`,
 		Version: Version,
 	}
 
@@ -57,6 +63,7 @@ Get started in 30 seconds:
 	root.AddCommand(validateCmd())
 	root.AddCommand(testCmd())
 	root.AddCommand(tailCmd())
+	root.AddCommand(updateCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
