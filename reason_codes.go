@@ -33,6 +33,16 @@ const (
 	// surface then applies default_on_missing.
 	ReasonCodeBundleMissing = "BUNDLE_MISSING"
 
+	// ReasonCodeObserveModeNoPolicy is emitted when the project is
+	// GENUINELY empty (zero attached policies) and default_on_empty is
+	// "observe" (#1247 item 3). The call is ALLOWED but loudly flagged as
+	// monitoring-only: the engine is wired up and auditing, not enforcing.
+	// SECURITY INVARIANT: only ever produced by the bundle translator's
+	// synthetic OBSERVE_MODE_NO_POLICY rule on a genuinely-empty project --
+	// a degraded / stale / stripped bundle fails closed with
+	// BUNDLE_MISSING instead, never this code.
+	ReasonCodeObserveModeNoPolicy = "OBSERVE_MODE_NO_POLICY"
+
 	// ReasonCodeBundleTampered is emitted when bundle verification
 	// fails (bad signature, checksum mismatch, unwrap error).
 	ReasonCodeBundleTampered = "BUNDLE_TAMPERED"
@@ -105,6 +115,7 @@ var ValidReasonCodes = map[string]bool{
 	ReasonCodeNoRuleMatch:               true,
 	ReasonCodeNoActivePolicies:          true,
 	ReasonCodeBundleMissing:             true,
+	ReasonCodeObserveModeNoPolicy:       true,
 	ReasonCodeBundleTampered:            true,
 	ReasonCodeMachineQuarantined:        true,
 	ReasonCodeNetworkError:              true,
@@ -137,6 +148,7 @@ const (
 	SyntheticPolicyIDPrefix        = "synthetic:"
 	SyntheticPolicyIDNoRuleMatch   = "synthetic:NO_RULE_MATCH"
 	SyntheticPolicyIDNoActive      = "synthetic:NO_ACTIVE_POLICIES"
+	SyntheticPolicyIDObserveNoPol  = "synthetic:OBSERVE_MODE_NO_POLICY"
 	SyntheticPolicyIDBundleMiss    = "synthetic:BUNDLE_MISSING"
 	SyntheticPolicyIDResGateSkip   = "synthetic:RESOURCE_GATE_SKIP"
 	SyntheticPolicyIDQuarantine    = "synthetic:QUARANTINE"
@@ -149,6 +161,7 @@ const (
 var ValidSyntheticPolicyIDs = map[string]bool{
 	SyntheticPolicyIDNoRuleMatch:   true,
 	SyntheticPolicyIDNoActive:      true,
+	SyntheticPolicyIDObserveNoPol:  true,
 	SyntheticPolicyIDBundleMiss:    true,
 	SyntheticPolicyIDResGateSkip:   true,
 	SyntheticPolicyIDQuarantine:    true,

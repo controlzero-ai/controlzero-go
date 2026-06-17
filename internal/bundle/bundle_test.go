@@ -281,15 +281,24 @@ func TestTranslateToLocalPolicy_SortsByPriority(t *testing.T) {
 	}
 }
 
-func TestTranslateToLocalPolicy_EmptyBecomesDenyAll(t *testing.T) {
+func TestTranslateToLocalPolicy_GenuineEmptyObserves(t *testing.T) {
+	// #1247 (founder-approved loosening): an explicit `policies: []` with no
+	// active_policy_count is a GENUINELY-empty project -> observe (allow +
+	// OBSERVE_MODE_NO_POLICY), NOT the old hard-coded deny-all.
 	out := TranslateToLocalPolicy(map[string]any{"policies": []any{}})
 	rules := out["rules"].([]any)
 	if len(rules) != 1 {
 		t.Fatalf("want 1 rule, got %d", len(rules))
 	}
 	r := rules[0].(map[string]any)
-	if r["effect"] != "deny" || r["action"] != "*" {
-		t.Errorf("expected deny-all, got %v", r)
+	if r["effect"] != "allow" || r["action"] != "*" {
+		t.Errorf("expected observe allow-all, got %v", r)
+	}
+	if r["reason_code"] != "OBSERVE_MODE_NO_POLICY" {
+		t.Errorf("expected reason_code OBSERVE_MODE_NO_POLICY, got %v", r["reason_code"])
+	}
+	if r["id"] != "synthetic:OBSERVE_MODE_NO_POLICY" {
+		t.Errorf("expected synthetic OBSERVE id, got %v", r["id"])
 	}
 }
 

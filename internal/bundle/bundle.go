@@ -46,6 +46,35 @@ const (
 	defaultMaxBundleSz = 16 * 1024 * 1024
 )
 
+// Canonical bundle-default fallbacks. These mirror the Python SDK's
+// enforcer constants (DEFAULT_BUNDLE_ACTION / _ON_MISSING / _ON_EMPTY /
+// _ON_TAMPER) and the backend's canonical defaults so a bundle without
+// an explicit knob gets the identical posture in every SDK.
+//
+//   - defaultBundleAction:    no-match path on a NON-empty bundle (deny).
+//   - defaultBundleOnMissing: degraded/partial/stale bundle -> fail CLOSED
+//     (deny). Also the effect of the synthetic BUNDLE_MISSING rule.
+//   - defaultBundleOnEmpty:   GENUINELY-empty project posture. Canonical
+//     "observe" (#1247): allow + loud OBSERVE_MODE_NO_POLICY signal so a
+//     fresh hosted project is monitored-not-bricked day one.
+//   - defaultBundleOnTamper:  tamper posture (warn).
+const (
+	defaultBundleAction    = "deny"
+	defaultBundleOnMissing = "deny"
+	defaultBundleOnEmpty   = "observe"
+	defaultBundleOnTamper  = "warn"
+)
+
+// Valid enums for each bundle-level default knob. An absent or unknown
+// value coerces to the canonical fallback above. Mirrors the Python SDK
+// VALID_DEFAULT_* frozensets so cross-language validation is identical.
+var (
+	validDefaultActions   = map[string]bool{"deny": true, "allow": true, "warn": true}
+	validDefaultOnMissing = map[string]bool{"deny": true, "allow": true}
+	validDefaultOnEmpty   = map[string]bool{"observe": true, "deny": true, "allow": true, "warn": true}
+	validDefaultOnTamper  = map[string]bool{"warn": true, "deny": true, "deny-all": true, "quarantine": true}
+)
+
 var magic = []byte("CZ01")
 
 // Header carries the fixed fields at the front of a bundle.
@@ -451,12 +480,121 @@ func CheckRecommendedSDKVersion(payload map[string]any, sdkVersion string) Recom
 	return RecommendedSDKResult{Behind: true, Recommended: recommended, Actual: sdkVersion}
 }
 
+// bundleActivePolicyCount returns metadata.active_policy_count -- the
+// backend's LIVE count of active policy attachments at bundle-build time
+// (#1303 part 3) -- or (0, false) when the field is absent or malformed
+// (an older backend that predates the field).
+//
+// This is the AUTHORITATIVE empty-vs-degraded discriminator. 0 means a
+// genuinely-empty project (observe, #1247); >0 means policies ARE
+// attached, so an empty translated rule set is a degraded / stripped /
+// stale bundle and must fail closed. A false `ok` makes the caller fall
+// back to the older `policies: []` shape heuristic.
+//
+// Mirrors the Python _bundle_active_policy_count: never treats a
+// non-integer as a genuine 0. bool, string, negative, and non-whole
+// floats are all rejected. JSON decoding lands integers as float64, so a
+// whole-number float64 (e.g. 3.0 for `"active_policy_count": 3`) is
+// accepted; native int / int64 / json.Number are accepted too for
+// payloads built directly as Go maps.
+func bundleActivePolicyCount(payload map[string]any) (int, bool) {
+	meta, ok := payload["metadata"].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	raw, ok := meta["active_policy_count"]
+	if !ok {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case bool:
+		// bool must never be read as 0/1 (matches Python's int-subclass reject).
+		return 0, false
+	case int:
+		if v < 0 {
+			return 0, false
+		}
+		return v, true
+	case int64:
+		if v < 0 {
+			return 0, false
+		}
+		return int(v), true
+	case float64:
+		// Reject non-integer floats (e.g. 1.5) and negatives. JSON whole
+		// numbers arrive as float64, so an integral value is a real count.
+		if v < 0 || v != float64(int64(v)) {
+			return 0, false
+		}
+		return int(v), true
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return int(n), true
+	default:
+		// string, nil, or any other type -> treated as absent.
+		return 0, false
+	}
+}
+
+// extractDefault reads a top-level string knob from the payload and
+// returns it when it is one of validSet, else the canonical fallback.
+// Mirrors the Python translator's `payload.get(...) not in VALID_... ->
+// canonical` coercion so unknown / absent / non-string values never flip
+// an org's posture through a typo.
+func extractDefault(payload map[string]any, key string, validSet map[string]bool, fallback string) string {
+	if v, ok := payload[key].(string); ok && validSet[v] {
+		return v
+	}
+	return fallback
+}
+
 // TranslateToLocalPolicy converts a decrypted bundle payload to the
 // local-mode policy map accepted by LoadPolicy. Sorts policies by
 // `priority` ascending so every SDK produces identical decisions from
 // identical input.
+//
+// #1247 + #1303 parity (founder-approved): brings the Go translator to
+// match the post-fix Python semantics. The previous Go behaviour
+// hard-coded a deny-all synthetic rule on ANY empty rule set and dropped
+// the default_on_* knobs. Now:
+//
+//   - A GENUINELY-empty project (active_policy_count == 0 AND an explicit
+//     `policies: []`, or -- on older backends with no count -- just an
+//     explicit `policies: []`) honours default_on_empty. The canonical
+//     fallback is "observe": allow + a loud OBSERVE_MODE_NO_POLICY signal
+//     so a fresh hosted project is monitored, not bricked (#1247). An
+//     operator can override default_on_empty to deny / warn / allow.
+//   - A DEGRADED / partial / stale bundle (zero translatable rules but NOT
+//     a genuine empty project: policies attached that produced no rules, a
+//     missing / non-array `policies` key, or active_policy_count > 0 with
+//     an empty list) FAILS CLOSED via default_on_missing (canonical deny),
+//     stamped with the synthetic BUNDLE_MISSING rule. This is the
+//     empty-vs-degraded boundary that prevents the rm-rf fail-open.
+//
+// The four knobs (default_action / default_on_missing / default_on_empty
+// / default_on_tamper) are propagated into the returned map's `settings`
+// block (and mirrored at the top level) so LoadPolicy / PolicyEvaluator
+// honour them downstream, exactly like the Python + Node SDKs.
 func TranslateToLocalPolicy(payload map[string]any) map[string]any {
-	raw, _ := payload["policies"].([]any)
+	// Resolve the four enforcement-default knobs up front so both the
+	// degraded and the genuinely-empty branch can consult them. Unknown /
+	// absent values coerce to the canonical fallbacks (deny / deny /
+	// observe / warn).
+	defaultAction := extractDefault(payload, "default_action", validDefaultActions, defaultBundleAction)
+	defaultOnMissing := extractDefault(payload, "default_on_missing", validDefaultOnMissing, defaultBundleOnMissing)
+	defaultOnEmpty := extractDefault(payload, "default_on_empty", validDefaultOnEmpty, defaultBundleOnEmpty)
+	defaultOnTamper := extractDefault(payload, "default_on_tamper", validDefaultOnTamper, defaultBundleOnTamper)
+
+	// Keep the RAW `policies` value to distinguish a genuinely-empty
+	// project (the backend ships an explicit empty list `policies: []`)
+	// from a DEGRADED bundle (policies attached but zero translatable
+	// rules, or a missing / non-array `policies` key). The former is
+	// observe (#1247); the latter must fail CLOSED.
+	rawPolicies, policiesIsArray := payload["policies"].([]any)
+	raw := rawPolicies
 	type pol struct {
 		id       string
 		priority float64
@@ -491,25 +629,111 @@ func TranslateToLocalPolicy(payload map[string]any) map[string]any {
 			}
 		}
 	}
-	if len(flat) == 0 {
-		// T79: stamp the synthetic NO_ACTIVE_POLICIES rule with both
-		// the canonical reason_code AND the synthetic policy_id so
-		// the audit dashboard renders a recognizable chip. Matches
-		// the Python + Node SDKs exactly so cross-language audit
-		// rows look identical for the same condition.
+	// #1303 part 3: active_policy_count is the AUTHORITATIVE
+	// empty-vs-degraded discriminator. >0 means policies ARE attached, so
+	// an empty translated rule set is a degraded / stripped bundle -> fail
+	// closed. For the GENUINELY-empty direction the count is necessary but
+	// not sufficient: a genuine empty project requires count == 0 AND the
+	// backend's explicit `policies: []`. A count == 0 paired with a missing
+	// or non-array `policies` key is a truncated / malformed / degraded
+	// bundle, NOT a genuine empty project -- trusting the count alone there
+	// would observe -> allow-all a degraded bundle (the rm-rf fail-open
+	// class, #1303), so it must fail closed. Count ABSENT (older backend)
+	// -> fall back to the explicit `policies: []` shape check.
+	activeCount, countPresent := bundleActivePolicyCount(payload)
+	explicitEmptyPolicies := policiesIsArray && len(rawPolicies) == 0
+	var genuinelyEmpty bool
+	if countPresent {
+		genuinelyEmpty = activeCount == 0 && explicitEmptyPolicies
+	} else {
+		genuinelyEmpty = explicitEmptyPolicies
+	}
+
+	if len(flat) == 0 && !genuinelyEmpty {
+		// #1303 FAIL-CLOSED (the empty-vs-degraded boundary). Zero
+		// translatable rules, but this is NOT a genuinely-empty project:
+		// the payload carried attached policies that produced no rules, OR
+		// a missing / non-array `policies` key, OR active_policy_count > 0
+		// with an empty list (a stripped bundle). Treating that as observe
+		// would ALLOW EVERY tool call for a customer who HAS a policy -- the
+		// reproduced rm-rf fail-open. Fail CLOSED via default_on_missing
+		// (canonical deny), stamped with the BUNDLE_MISSING reason_code +
+		// synthetic id so it is not confused with a genuine empty project.
 		flat = append(flat, map[string]any{
-			"id":          "synthetic:NO_ACTIVE_POLICIES",
-			"effect":      "deny",
-			"action":      "*",
-			"reason":      "No active policies. Define one in the Control Zero dashboard.",
-			"reason_code": "NO_ACTIVE_POLICIES",
+			"id":     "synthetic:BUNDLE_MISSING",
+			"effect": defaultOnMissing,
+			"action": "*",
+			"reason": "Your project has attached policies but the resolved bundle " +
+				"produced zero enforceable rules (a degraded, partial, or stale " +
+				"bundle). Control Zero is failing CLOSED (deny) rather than " +
+				"allowing every tool call. Regenerate the policy bundle in the " +
+				"Control Zero dashboard; contact support if this persists.",
+			"reason_code": "BUNDLE_MISSING",
 		})
 	}
+
+	if len(flat) == 0 {
+		// Genuinely-empty project (resolved successfully, zero rules):
+		// posture is driven by default_on_empty (#1247 item 3), NOT
+		// default_action. Canonical "observe" allows the call through
+		// (effect=allow) but loudly flags it as monitoring-only via
+		// reason_code=OBSERVE_MODE_NO_POLICY so the operator knows the
+		// engine is wired up and watching, not enforcing. An operator can
+		// override default_on_empty to deny / warn / allow.
+		if defaultOnEmpty == "observe" {
+			flat = append(flat, map[string]any{
+				"id":     "synthetic:OBSERVE_MODE_NO_POLICY",
+				"effect": "allow",
+				"action": "*",
+				"reason": "OBSERVE MODE: no policies are active on this project, so " +
+					"Control Zero is monitoring and auditing tool calls but NOT " +
+					"enforcing -- every call is allowed and logged. Attach a policy " +
+					"(or set the empty-project default to deny) in the Control Zero " +
+					"dashboard to start enforcing.",
+				"reason_code": "OBSERVE_MODE_NO_POLICY",
+			})
+		} else {
+			// Explicit non-observe empty posture (deny / warn / allow).
+			// Keeps the historical NO_ACTIVE_POLICIES reason_code so
+			// dashboards still bucket it as "nothing attached"; the effect
+			// honours the operator's declared default_on_empty.
+			flat = append(flat, map[string]any{
+				"id":     "synthetic:NO_ACTIVE_POLICIES",
+				"effect": defaultOnEmpty,
+				"action": "*",
+				"reason": "No policies are active on this project. If the dashboard " +
+					"shows attached policies, regenerate the policy bundle.",
+				"reason_code": "NO_ACTIVE_POLICIES",
+			})
+		}
+	}
+
 	rules := make([]any, len(flat))
 	for i, r := range flat {
 		rules[i] = r
 	}
-	return map[string]any{"version": "1", "rules": rules}
+
+	// Propagate the four knobs so LoadPolicy / PolicyEvaluator honour them
+	// downstream. Emit both a `settings` block (the canonical home, read by
+	// parseSettings) AND the top-level scalars (the bundle wire shape, which
+	// validateAndTranslate also accepts and which takes precedence). This
+	// matches the Python translator's `settings` output and keeps the
+	// translated shape compatible with every LoadPolicy code path.
+	settings := map[string]any{
+		"default_action":     defaultAction,
+		"default_on_missing": defaultOnMissing,
+		"default_on_empty":   defaultOnEmpty,
+		"default_on_tamper":  defaultOnTamper,
+	}
+	return map[string]any{
+		"version":            "1",
+		"rules":              rules,
+		"settings":           settings,
+		"default_action":     defaultAction,
+		"default_on_missing": defaultOnMissing,
+		"default_on_empty":   defaultOnEmpty,
+		"default_on_tamper":  defaultOnTamper,
+	}
 }
 
 // isEffectWord reports whether v is one of the four canonical effect
@@ -550,12 +774,17 @@ func translateRule(rule map[string]any, policyID string) map[string]any {
 	if effect == "" {
 		if a, ok := rule["action"].(string); ok && isEffectWord(a) {
 			effect = a
-		} else {
-			effect = "allow"
 		}
 	}
+	// An UNRECOGNIZED or empty effect on a validly-signed rule must fail
+	// CLOSED -> deny, mirroring the Python (_translate_rule: `else "deny"`)
+	// and Node (`effect = 'deny'`) SDKs. Coercing to "allow" (the old
+	// behavior) turned an unknown rule into allow-*-for-its-pattern -- the
+	// exact #1303 cross-surface fail-open, and the one surface that still had
+	// it. A deny over-denies that single pattern at worst (the safe
+	// direction); all three SDKs must agree byte-for-byte on the decision.
 	if !isEffectWord(effect) {
-		effect = "allow"
+		effect = "deny"
 	}
 
 	// Tool pattern resolution. Collect into a list so we can preserve

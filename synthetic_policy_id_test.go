@@ -43,6 +43,7 @@ func TestSyntheticPolicyIDConstants_ExactValues(t *testing.T) {
 		"prefix":             "synthetic:",
 		"no_rule_match":      "synthetic:NO_RULE_MATCH",
 		"no_active":          "synthetic:NO_ACTIVE_POLICIES",
+		"observe_no_policy":  "synthetic:OBSERVE_MODE_NO_POLICY",
 		"bundle_missing":     "synthetic:BUNDLE_MISSING",
 		"resource_gate_skip": "synthetic:RESOURCE_GATE_SKIP",
 		"quarantine":         "synthetic:QUARANTINE",
@@ -52,6 +53,7 @@ func TestSyntheticPolicyIDConstants_ExactValues(t *testing.T) {
 		"prefix":             SyntheticPolicyIDPrefix,
 		"no_rule_match":      SyntheticPolicyIDNoRuleMatch,
 		"no_active":          SyntheticPolicyIDNoActive,
+		"observe_no_policy":  SyntheticPolicyIDObserveNoPol,
 		"bundle_missing":     SyntheticPolicyIDBundleMiss,
 		"resource_gate_skip": SyntheticPolicyIDResGateSkip,
 		"quarantine":         SyntheticPolicyIDQuarantine,
@@ -64,9 +66,11 @@ func TestSyntheticPolicyIDConstants_ExactValues(t *testing.T) {
 	}
 }
 
-func TestSyntheticPolicyIDs_SetHasExactlySixMembers(t *testing.T) {
-	if len(ValidSyntheticPolicyIDs) != 6 {
-		t.Errorf("ValidSyntheticPolicyIDs size = %d, want 6", len(ValidSyntheticPolicyIDs))
+func TestSyntheticPolicyIDs_SetHasExactlySevenMembers(t *testing.T) {
+	// Bumped from six to seven when synthetic:OBSERVE_MODE_NO_POLICY was
+	// added for the #1247 genuinely-empty observe posture.
+	if len(ValidSyntheticPolicyIDs) != 7 {
+		t.Errorf("ValidSyntheticPolicyIDs size = %d, want 7", len(ValidSyntheticPolicyIDs))
 	}
 	for k := range ValidSyntheticPolicyIDs {
 		if !strings.HasPrefix(k, SyntheticPolicyIDPrefix) {
@@ -168,7 +172,14 @@ func TestEvaluator_UserRuleMatch_DoesNotStampSynthetic(t *testing.T) {
 	}
 }
 
-// ---- empty bundle (NO_ACTIVE_POLICIES) ---------------------------------
+// ---- empty bundle (OBSERVE_MODE_NO_POLICY, #1247 parity) ----------------
+//
+// #69: a genuinely-empty bundle (explicit `policies: []`, no default_on_empty)
+// now resolves to the canonical OBSERVE posture (allow + a loud
+// OBSERVE_MODE_NO_POLICY signal), matching Python/Node -- NOT the old
+// hard-coded NO_ACTIVE_POLICIES deny. The degraded cases (missing/non-array
+// policies, count>0+empty) fail closed via BUNDLE_MISSING; those are covered
+// in bundle_observe_1303_decision_test.go.
 
 func TestEmptyBundle_TranslatorEmitsSyntheticID(t *testing.T) {
 	local := bundle.TranslateToLocalPolicy(map[string]any{
@@ -179,11 +190,14 @@ func TestEmptyBundle_TranslatorEmitsSyntheticID(t *testing.T) {
 		t.Fatalf("expected 1 synthetic rule, got %v", local["rules"])
 	}
 	rule := rules[0].(map[string]any)
-	if rule["id"] != "synthetic:NO_ACTIVE_POLICIES" {
-		t.Errorf("rule.id = %v, want synthetic:NO_ACTIVE_POLICIES", rule["id"])
+	if rule["id"] != "synthetic:OBSERVE_MODE_NO_POLICY" {
+		t.Errorf("rule.id = %v, want synthetic:OBSERVE_MODE_NO_POLICY", rule["id"])
 	}
-	if rule["reason_code"] != "NO_ACTIVE_POLICIES" {
-		t.Errorf("rule.reason_code = %v, want NO_ACTIVE_POLICIES", rule["reason_code"])
+	if rule["reason_code"] != "OBSERVE_MODE_NO_POLICY" {
+		t.Errorf("rule.reason_code = %v, want OBSERVE_MODE_NO_POLICY", rule["reason_code"])
+	}
+	if rule["effect"] != "allow" {
+		t.Errorf("rule.effect = %v, want allow (observe)", rule["effect"])
 	}
 }
 
@@ -197,13 +211,13 @@ func TestEmptyBundle_RoundtripCarriesSyntheticID(t *testing.T) {
 	}
 	ev := NewPolicyEvaluator(rules)
 	decision := ev.Evaluate("anything", "*", nil)
-	if decision.Effect != "deny" {
-		t.Fatalf("want deny, got %s", decision.Effect)
+	if decision.Effect != "allow" {
+		t.Fatalf("want allow (observe), got %s", decision.Effect)
 	}
-	if decision.PolicyID != SyntheticPolicyIDNoActive {
-		t.Errorf("PolicyID = %q, want %q", decision.PolicyID, SyntheticPolicyIDNoActive)
+	if decision.PolicyID != SyntheticPolicyIDObserveNoPol {
+		t.Errorf("PolicyID = %q, want %q", decision.PolicyID, SyntheticPolicyIDObserveNoPol)
 	}
-	if decision.ReasonCode != ReasonCodeNoActivePolicies {
-		t.Errorf("ReasonCode = %q, want %q", decision.ReasonCode, ReasonCodeNoActivePolicies)
+	if decision.ReasonCode != ReasonCodeObserveModeNoPolicy {
+		t.Errorf("ReasonCode = %q, want %q", decision.ReasonCode, ReasonCodeObserveModeNoPolicy)
 	}
 }

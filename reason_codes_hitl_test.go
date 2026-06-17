@@ -99,14 +99,16 @@ func TestHITLCodesMatchDesignDocExactly(t *testing.T) {
 }
 
 // TestValidReasonCodesGrewByExactlyNine: 1.7.5 had 8 codes; 1.7.6
-// adds 9 -> 17. If anyone adds another code without updating this
-// test, it fires so the addition is intentional + reviewed.
+// adds 9 -> 17. The #1247 observe posture adds OBSERVE_MODE_NO_POLICY
+// -> 18. If anyone adds another code without updating this test, it
+// fires so the addition is intentional + reviewed.
 func TestValidReasonCodesGrewByExactlyNine(t *testing.T) {
 	const legacyCount = 8
 	const hitlCount = 9
-	want := legacyCount + hitlCount
+	const observeCount = 1 // OBSERVE_MODE_NO_POLICY (#1247)
+	want := legacyCount + hitlCount + observeCount
 	if len(controlzero.ValidReasonCodes) != want {
-		t.Errorf("len(ValidReasonCodes) = %d, want %d (legacy %d + hitl %d)",
-			len(controlzero.ValidReasonCodes), want, legacyCount, hitlCount)
+		t.Errorf("len(ValidReasonCodes) = %d, want %d (legacy %d + hitl %d + observe %d)",
+			len(controlzero.ValidReasonCodes), want, legacyCount, hitlCount, observeCount)
 	}
 }

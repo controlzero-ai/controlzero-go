@@ -20,6 +20,12 @@ const (
 	DefaultPolicyAction    = "deny"
 	DefaultPolicyOnMissing = "deny"
 	DefaultPolicyOnTamper  = "warn"
+	// DefaultPolicyOnEmpty is the canonical empty-project posture
+	// (#1247). "observe" allows + loudly flags monitoring-only via the
+	// synthetic OBSERVE_MODE_NO_POLICY rule the bundle translator emits,
+	// so a fresh hosted project is watched, not bricked. Mirrors the
+	// Python DEFAULT_BUNDLE_ON_EMPTY / Node default.
+	DefaultPolicyOnEmpty = "observe"
 )
 
 // ValidTamperBehaviors mirrors the Python + Node enum so policies
@@ -116,6 +122,17 @@ var ValidOnMissing = map[string]bool{
 	"allow": true,
 }
 
+// ValidOnEmpty is the canonical enum for settings.default_on_empty and
+// bundle-level default_on_empty (#1247 item 3). "observe" is the
+// canonical genuinely-empty posture; deny / warn / allow let an operator
+// override. Mirrors the Python VALID_DEFAULT_ON_EMPTY frozenset.
+var ValidOnEmpty = map[string]bool{
+	"observe": true,
+	"deny":    true,
+	"allow":   true,
+	"warn":    true,
+}
+
 // PolicySettings carries the three enforcement-default knobs defined in
 // docs/behavior-matrix.md:
 //
@@ -139,6 +156,14 @@ type PolicySettings struct {
 	// load a bundle at all. Values: deny (default), allow.
 	DefaultOnMissing string
 
+	// DefaultOnEmpty is the posture for a GENUINELY-empty project (#1247).
+	// Values: observe (default), deny, allow, warn. The bundle translator
+	// already materialises this knob into a synthetic catch-all rule
+	// (OBSERVE_MODE_NO_POLICY / NO_ACTIVE_POLICIES), so the evaluator does
+	// not branch on this field directly; it is preserved here so a policy
+	// loaded from a map / YAML round-trips the operator's declared value.
+	DefaultOnEmpty string
+
 	// DefaultOnTamper is the mode used when tamper is detected. Values:
 	// warn (default), deny, deny-all, quarantine.
 	DefaultOnTamper string
@@ -155,6 +180,7 @@ func DefaultPolicySettings() PolicySettings {
 	return PolicySettings{
 		DefaultAction:    DefaultPolicyAction,
 		DefaultOnMissing: DefaultPolicyOnMissing,
+		DefaultOnEmpty:   DefaultPolicyOnEmpty,
 		DefaultOnTamper:  DefaultPolicyOnTamper,
 		TamperBehavior:   DefaultPolicyOnTamper,
 	}
@@ -353,6 +379,16 @@ func parseSettings(raw any) (PolicySettings, []string) {
 		}
 	}
 
+	if v, ok := m["default_on_empty"]; ok && v != nil {
+		str := fmt.Sprintf("%v", v)
+		if !ValidOnEmpty[str] {
+			errs = append(errs, fmt.Sprintf(
+				"settings.default_on_empty must be one of [allow deny warn observe], got %q", str))
+		} else {
+			s.DefaultOnEmpty = str
+		}
+	}
+
 	if v, ok := m["default_on_tamper"]; ok && v != nil {
 		str := fmt.Sprintf("%v", v)
 		if !ValidTamperBehaviors[str] {
@@ -408,6 +444,7 @@ func validateAndTranslate(data map[string]any, sourceLabel string) (ParsedPolicy
 	}{
 		{"default_action", ValidDefaultActions, func(s string) { settings.DefaultAction = s }, "[allow deny warn]"},
 		{"default_on_missing", ValidOnMissing, func(s string) { settings.DefaultOnMissing = s }, "[allow deny]"},
+		{"default_on_empty", ValidOnEmpty, func(s string) { settings.DefaultOnEmpty = s }, "[allow deny warn observe]"},
 		{"default_on_tamper", ValidTamperBehaviors, func(s string) { settings.DefaultOnTamper = s }, "[warn deny deny-all quarantine]"},
 	} {
 		if v, ok := data[pair.key]; ok && v != nil {
