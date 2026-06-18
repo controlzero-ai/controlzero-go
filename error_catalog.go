@@ -173,6 +173,13 @@ var errorCatalog = map[string]ErrorCodeRecord{
 		Fix:   `Either point the SDK at your corporate CA bundle (REQUESTS_CA_BUNDLE=/path/to/corp.pem) or fix the system clock.`,
 		Doc:   `E1404-tls-verify`,
 	},
+	`E1405`: {
+		Code:  `E1405`,
+		Title: `Feature not available on your plan`,
+		What:  `The backend rejected the request with HTTP 403 and code FEATURE_NOT_AVAILABLE: the feature this endpoint serves (for example coding hooks or the Scout agent, both Teams-tier) is not included in your organization's current plan. This is a billing gate, not an authentication failure -- the API key or machine signature was accepted.`,
+		Fix:   `Upgrade the organization's plan in the dashboard (Settings > Billing, or the upgrade_url field in the error body). The response's feature and tier fields name the gated feature and your current plan.`,
+		Doc:   `E1405-feature-not-on-plan`,
+	},
 	`E1500`: {
 		Code:  `E1500`,
 		Title: `Approvals disabled at this scope`,
@@ -346,6 +353,7 @@ var errorCatalogOrder = []string{
 	`E1402`,
 	`E1403`,
 	`E1404`,
+	`E1405`,
 	`E1500`,
 	`E1501`,
 	`E1502`,
