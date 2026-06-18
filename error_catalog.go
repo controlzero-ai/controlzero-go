@@ -162,8 +162,8 @@ var errorCatalog = map[string]ErrorCodeRecord{
 	`E1403`: {
 		Code:  `E1403`,
 		Title: `Rate limit exceeded`,
-		What:  `The hosted backend rate-limited this client. The SDK backs off and retries; tool calls are not blocked.`,
-		Fix:   `If you see this consistently, your usage may have crossed your tier's limit. Check the dashboard's Usage page.`,
+		What:  `The hosted backend rate-limited this client (HTTP 429 with a Retry-After header). The SDK does not retry automatically, and hook enforcement fails closed: the guarded tool call is denied rather than allowed through ungoverned.`,
+		Fix:   `Wait for the Retry-After window (60s by default) and retry. If you see this consistently, your usage may have crossed your tier's limit. Check the dashboard's Usage page.`,
 		Doc:   `E1403-rate-limit`,
 	},
 	`E1404`: {
