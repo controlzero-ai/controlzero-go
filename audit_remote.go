@@ -377,6 +377,46 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 		}
 	}
 
+	// I/O capture CONTRACT (spine S0, T77 / epic #1390). The richer capture
+	// contract -- raw input/output payload plus provenance + completeness +
+	// per-record DEK + purge metadata. Emitted HERE in the shared builder so
+	// the wire shape matches Python + Node uniformly.
+	//
+	// SHIP DARK: each field is forwarded ONLY when the entry actually carries
+	// it, so the common guard()-decision row -- which carries NONE of them
+	// today (no producer until spine S4/S5) -- keeps its EXISTING lean payload
+	// byte-for-byte. Older backends ignore the extra keys (additive contract);
+	// the matching backend audit-store columns ship alongside this change.
+	// S0 ship-dark: do not forward payloads until S4 producer. The wire-field
+	// DEFINITIONS (input_payload / output_payload, the existing AuditIngestEntry
+	// field names) are kept for back-compat so a future S4 producer and old/new
+	// backends agree on the shape, but the builder must NOT emit the raw
+	// cleartext payloads yet -- the producer that captures and forwards them
+	// arrives in spine S4, and the backend persistence is itself gated off until
+	// S1 DLP + S2 per-record DEK land. We still forward the lightweight
+	// provenance/completeness metadata when a producer sets it (no payload, no
+	// PII) so dashboards can be honest about a capture's shape once one exists.
+	for _, key := range []string{
+		"io_source_type",
+		"io_capture_surface",
+		"io_producer_version",
+		"io_invocation_id",
+		"io_capture_completeness",
+		"io_truncation_reason",
+		"io_capture_failed_reason",
+	} {
+		if v := strOrEmpty(entry[key]); v != "" {
+			wire[key] = v
+		}
+	}
+	for _, key := range []string{"io_input_captured", "io_output_captured", "io_redaction_applied"} {
+		// Booleans: forward only an explicit true so a producer-less row never
+		// ships a `false` it did not set (keeps the dark payload identical).
+		if b, ok := entry[key].(bool); ok && b {
+			wire[key] = true
+		}
+	}
+
 	// Final batch-poison backstop (#439 codex P1-b): every value that goes on
 	// the wire -- including the raw top-level forwarded fields above (the
 	// credential_* envelope copies entry[key] verbatim) and any future field
