@@ -1,15 +1,19 @@
-// I/O capture CONTRACT wire fields (spine S0, T77 / epic #1390).
+// I/O capture CONTRACT wire fields (spine S4, T77 / epic #1390 / #1392).
 //
-// S0 ship-dark guarantees, mirroring the Python + Node SDK tests:
-//   - SHIP DARK: a plain decision entry produces a wire map with NONE of the
-//     new io_* keys -- the dark default matches pre-S0 behaviour.
-//   - The raw cleartext payloads (input_payload / output_payload) are NEVER
-//     forwarded yet, even when an entry carries them -- the S4 producer has not
-//     landed and backend persistence is gated off until S1 DLP + S2 land.
-//   - The lightweight provenance/completeness metadata IS forwarded.
+// S4 producer contract (reverses the S0 ship-dark payload suppression),
+// mirroring the Python + Node SDK tests:
+//   - SHIP DARK DEFAULT: a plain decision entry produces a wire map with NONE
+//     of the new io_* keys -- byte-identical to pre-S0.
+//   - The raw payloads (input_payload / output_payload) ARE forwarded now when
+//     an entry carries them (the S4 agent_hook producer captures them). The
+//     backend master gate is the persistence backstop -- a forwarded payload is
+//     dropped server-side until S7+S8.
+//   - Forwarding is present-only: no producer -> no payload on the wire.
+//   - The lightweight provenance/completeness metadata is forwarded when set.
 //
-// fail-if-reverted: re-adding input_payload / output_payload to the forwarded
-// keys in toWireFormat makes the payload-suppression assertions below fail.
+// fail-if-reverted: re-suppressing input_payload / output_payload (removing them
+// from the forwarded keys in toWireFormat) breaks
+// TestToWire_IOCapturePayloadsForwarded.
 
 package controlzero
 
@@ -52,26 +56,51 @@ func TestToWire_IOCaptureDarkDefault_NoKeys(t *testing.T) {
 	}
 }
 
-func TestToWire_IOCaptureShipDark_NoPayloads(t *testing.T) {
+func TestToWire_IOCapturePresentOnly_NoPayloadWhenAbsent(t *testing.T) {
 	sink := NewBearerAuditSink(BearerAuditOptions{
 		APIURL: "https://api.example.com",
 		APIKey: "cz_test_fakekey",
 	})
-	// S0 ship-dark: even with payloads present, they are never forwarded.
+	// Metadata present but no payload -> no payload forwarded (present-only).
+	wire := sink.toWireFormat(map[string]any{
+		"tool":                    "Bash",
+		"decision":                "allow",
+		"io_source_type":          "agent_hook",
+		"io_capture_surface":      "claude_code",
+		"io_capture_completeness": "none_unsupported",
+	})
+	for _, k := range []string{"input_payload", "output_payload"} {
+		if _, present := wire[k]; present {
+			t.Errorf("payload forwarded with no producer payload (%q): %v", k, wire)
+		}
+	}
+	if wire["io_source_type"] != "agent_hook" {
+		t.Errorf("metadata regressed: %v", wire)
+	}
+}
+
+func TestToWire_IOCapturePayloadsForwarded(t *testing.T) {
+	sink := NewBearerAuditSink(BearerAuditOptions{
+		APIURL: "https://api.example.com",
+		APIKey: "cz_test_fakekey",
+	})
+	// S4: the producer attached payloads -> the builder forwards them.
+	// fail-if-reverted: re-suppressing the payloads breaks this.
 	wire := sink.toWireFormat(map[string]any{
 		"tool":           "Bash",
 		"decision":       "allow",
 		"input_payload":  "ls -la /tmp",
 		"output_payload": "total 0",
 	})
-	for _, k := range []string{"input_payload", "output_payload"} {
-		if _, present := wire[k]; present {
-			t.Errorf("payload leaked onto wire in S0 (%q): %v", k, wire)
-		}
+	if wire["input_payload"] != "ls -la /tmp" {
+		t.Errorf("input_payload not forwarded: %v", wire)
+	}
+	if wire["output_payload"] != "total 0" {
+		t.Errorf("output_payload not forwarded: %v", wire)
 	}
 }
 
-func TestToWire_IOCapturePopulated_ForwardsMetadataOnly(t *testing.T) {
+func TestToWire_IOCapturePopulated_ForwardsPayloadsAndMetadata(t *testing.T) {
 	sink := NewBearerAuditSink(BearerAuditOptions{
 		APIURL: "https://api.example.com",
 		APIKey: "cz_test_fakekey",
@@ -83,24 +112,19 @@ func TestToWire_IOCapturePopulated_ForwardsMetadataOnly(t *testing.T) {
 		"output_payload":          "total 0",
 		"io_source_type":          "agent_hook",
 		"io_capture_surface":      "claude_code",
-		"io_producer_version":     "1.0.0",
+		"io_producer_version":     "agent_hook@1.0.0",
 		"io_invocation_id":        "inv-1",
 		"io_capture_completeness": "full",
 		"io_input_captured":       true,
 		"io_output_captured":      true,
 		"io_redaction_applied":    true,
 	})
-	// S0 ship-dark: the cleartext payloads are NEVER forwarded yet.
-	for _, k := range []string{"input_payload", "output_payload"} {
-		if _, present := wire[k]; present {
-			t.Errorf("payload leaked onto wire in S0 (%q): %v", k, wire)
-		}
-	}
-	// The lightweight metadata IS forwarded.
 	checks := map[string]any{
+		"input_payload":           "ls -la /tmp",
+		"output_payload":          "total 0",
 		"io_source_type":          "agent_hook",
 		"io_capture_surface":      "claude_code",
-		"io_producer_version":     "1.0.0",
+		"io_producer_version":     "agent_hook@1.0.0",
 		"io_invocation_id":        "inv-1",
 		"io_capture_completeness": "full",
 		"io_input_captured":       true,

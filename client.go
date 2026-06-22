@@ -376,6 +376,14 @@ type GuardOptions struct {
 	Method      string
 	RaiseOnDeny bool
 	Context     *EvalContext
+	// AuditExtras carries caller-supplied audit fields that are merged onto the
+	// emitted audit row WITHOUT clobbering the SDK-owned reserved keys. The
+	// hook-check CLI uses it to attach the #228 extracted_method and the spine
+	// S4 (#1392) I/O capture producer fields (input_payload / output_payload +
+	// io_* provenance/completeness). Mirrors the Node guard()'s auditExtras and
+	// the Python guard() context-merge. nil for ordinary SDK callers, so the
+	// common decision row is unchanged.
+	AuditExtras map[string]any
 }
 
 // Guard evaluates a tool call against the loaded policy.
@@ -411,7 +419,7 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 			ReasonCode:          ReasonCodeMachineQuarantined,
 			PolicyEngineVersion: PolicyEngineVersion,
 		}
-		c.auditDecision(tool, method, opts.Args, decision, evalContext)
+		c.auditDecision(tool, method, opts.Args, decision, evalContext, opts.AuditExtras)
 		if opts.RaiseOnDeny {
 			return decision, &PolicyDeniedError{Decision: decision}
 		}
@@ -476,7 +484,7 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 		}
 	}
 
-	c.auditDecision(tool, method, opts.Args, decision, evalContext)
+	c.auditDecision(tool, method, opts.Args, decision, evalContext, opts.AuditExtras)
 
 	if opts.RaiseOnDeny && decision.Denied() {
 		return decision, &PolicyDeniedError{Decision: decision}
@@ -651,7 +659,7 @@ func (c *Client) noopDecision() PolicyDecision {
 	}
 }
 
-func (c *Client) auditDecision(tool, method string, args map[string]any, decision PolicyDecision, evalContext *EvalContext) {
+func (c *Client) auditDecision(tool, method string, args map[string]any, decision PolicyDecision, evalContext *EvalContext, extras map[string]any) {
 	keys := make([]string, 0, len(args))
 	for k := range args {
 		keys = append(keys, k)
@@ -727,8 +735,41 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		entry["action_semantic_class"] = ResolveCanonicalTool(tool) + ":" + decision.SemanticClass
 	}
 
+	// Merge caller-supplied AuditExtras without clobbering the SDK-owned
+	// reserved keys. The hook-check CLI uses this to attach the #228
+	// extracted_method and the spine S4 (#1392) I/O capture producer fields
+	// (input_payload / output_payload + io_* metadata). Mirrors the Node
+	// auditDecision extras-merge + Python guard-context merge.
+	for k, v := range extras {
+		if _auditReservedKeys[k] {
+			continue
+		}
+		entry[k] = v
+	}
+
 	if c.audit != nil {
-		c.audit.Log(entry)
+		// I/O capture (spine S4, #1392): the raw input_payload / output_payload
+		// an agent_hook producer captures are FULL cleartext that may carry
+		// PII/secrets. They are DLP-redacted (S1) + encrypted under a per-record
+		// DEK (S2) SERVER-side; the LOCAL plaintext audit log has no such
+		// protection, so strip them before the local write (the io_* metadata
+		// is preserved so the local log still shows THAT a capture happened).
+		// The REMOTE sink below keeps full fidelity. Mirrors Python
+		// _LOCAL_STRIPPED_PAYLOAD_KEYS + Node's delete in auditDecision.
+		_, hasInput := entry["input_payload"]
+		_, hasOutput := entry["output_payload"]
+		if hasInput || hasOutput {
+			localEntry := make(map[string]any, len(entry))
+			for k, v := range entry {
+				if k == "input_payload" || k == "output_payload" {
+					continue
+				}
+				localEntry[k] = v
+			}
+			c.audit.Log(localEntry)
+		} else {
+			c.audit.Log(entry)
+		}
 	}
 
 	if c.bearerSink != nil {
@@ -739,4 +780,24 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		hosted["mode"] = "hosted"
 		c.bearerSink.Log(hosted)
 	}
+}
+
+// _auditReservedKeys are the SDK-owned audit-entry keys that AuditExtras must
+// never override. Mirrors the Node auditDecision reserved set.
+var _auditReservedKeys = map[string]bool{
+	"decision":              true,
+	"tool":                  true,
+	"method":                true,
+	"policy_id":             true,
+	"reason":                true,
+	"reason_code":           true,
+	"surface":               true,
+	"args_keys":             true,
+	"args_hash":             true,
+	"policy_engine_version": true,
+	"mode":                  true,
+	"policy_source":         true,
+	"client_name":           true,
+	"project_id":            true,
+	"gate_matched":          true,
 }

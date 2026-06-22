@@ -384,19 +384,22 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 	//
 	// SHIP DARK: each field is forwarded ONLY when the entry actually carries
 	// it, so the common guard()-decision row -- which carries NONE of them
-	// today (no producer until spine S4/S5) -- keeps its EXISTING lean payload
+	// today (no producer set them) -- keeps its EXISTING lean payload
 	// byte-for-byte. Older backends ignore the extra keys (additive contract);
 	// the matching backend audit-store columns ship alongside this change.
-	// S0 ship-dark: do not forward payloads until S4 producer. The wire-field
-	// DEFINITIONS (input_payload / output_payload, the existing AuditIngestEntry
-	// field names) are kept for back-compat so a future S4 producer and old/new
-	// backends agree on the shape, but the builder must NOT emit the raw
-	// cleartext payloads yet -- the producer that captures and forwards them
-	// arrives in spine S4, and the backend persistence is itself gated off until
-	// S1 DLP + S2 per-record DEK land. We still forward the lightweight
-	// provenance/completeness metadata when a producer sets it (no payload, no
-	// PII) so dashboards can be honest about a capture's shape once one exists.
+	//
+	// S4 producer (#1392): the agent_hook producer NOW captures and forwards
+	// input_payload / output_payload, so this builder forwards them when the
+	// entry carries them. The S0 ship-dark suppression is REVERSED. Back-compat
+	// is preserved by the SAME present-only guard every other field uses: an
+	// entry with no producer (the common guard()-decision row, every older
+	// caller) carries NO payload and the wire is byte-identical to pre-S4.
+	// Persistence stays DORMANT in prod -- the backend master gate
+	// (audit.IOCaptureWriteEnabled, NOT flipped by S4) drops a forwarded payload
+	// until the S7+S8 activation rung.
 	for _, key := range []string{
+		"input_payload",
+		"output_payload",
 		"io_source_type",
 		"io_capture_surface",
 		"io_producer_version",
