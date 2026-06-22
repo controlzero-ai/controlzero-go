@@ -26,6 +26,14 @@ type PolicyRule struct {
 	Reason     string // Human-readable explanation, surfaced in audit + denies
 	ReasonCode string // Machine-readable code (see reason_codes.go)
 
+	// ReasonLocalized is a locale-keyed override of Reason (
+	// #25, gh#1439). A {locale: message} map. When CONTROLZERO_LOCALE
+	// selects a locale present here, the evaluator surfaces that
+	// message instead of Reason. Empty / missing key => fall back to
+	// Reason (plain English / operator text), so existing reason-regex
+	// consumers are unaffected. Additive contract: NO BREAKING CHANGES.
+	ReasonLocalized map[string]string
+
 	// EscalateOnDeny is the HITL escalation tag (HITL-5c, gh#540):
 	// when true and the rule's effect is `deny`, future SDK versions
 	// will mark the resulting PolicyDecision as hitl_eligible=true.
@@ -58,6 +66,12 @@ type PolicyRule struct {
 type PolicyEvaluator struct {
 	rules         []PolicyRule
 	defaultAction string
+	// locale is the active reason-localization locale (#25,
+	// gh#1439). "" means English (the default); reason text is then
+	// byte-identical to the pre-localization SDK so existing
+	// reason-regex consumers are unaffected. Read from
+	// CONTROLZERO_LOCALE at construction.
+	locale string
 }
 
 // NewPolicyEvaluator constructs an evaluator with an optional initial rule set.
@@ -65,7 +79,7 @@ type PolicyEvaluator struct {
 // contract (deny on no-match). Use NewPolicyEvaluatorWithSettings to
 // honour a bundle's default_action.
 func NewPolicyEvaluator(rules []PolicyRule) *PolicyEvaluator {
-	return &PolicyEvaluator{rules: rules}
+	return &PolicyEvaluator{rules: rules, locale: ResolveLocale("")}
 }
 
 // NewPolicyEvaluatorWithSettings constructs an evaluator that honours
@@ -75,7 +89,55 @@ func NewPolicyEvaluatorWithSettings(rules []PolicyRule, settings PolicySettings)
 	return &PolicyEvaluator{
 		rules:         rules,
 		defaultAction: settings.DefaultAction,
+		locale:        ResolveLocale(""),
 	}
+}
+
+// SetLocale sets the active reason-localization locale (#25,
+// gh#1439). "" forces English. Display-only: never changes which rule
+// matches or the effect, only the reason text.
+func (e *PolicyEvaluator) SetLocale(locale string) {
+	e.locale = ResolveLocale(locale)
+}
+
+// Locale returns the effective reason-localization locale ("" == English).
+func (e *PolicyEvaluator) Locale() string {
+	return e.locale
+}
+
+// resolveReason resolves the human-readable reason for a matched rule,
+// localized. Priority (#25, gh#1439):
+// rule.ReasonLocalized[locale] -> synthetic-rule system override by
+// reason_code -> plain rule.Reason -> canned. English/unset locale
+// returns rule.Reason unchanged.
+func (e *PolicyEvaluator) resolveReason(rule PolicyRule, id string) string {
+	loc := e.locale
+	if loc != "" && loc != "en" {
+		if rule.ReasonLocalized != nil {
+			if msg, ok := rule.ReasonLocalized[loc]; ok && msg != "" {
+				return msg
+			}
+			primary := loc
+			for _, sep := range []string{"-", "_"} {
+				if idx := strings.Index(primary, sep); idx > 0 {
+					primary = primary[:idx]
+					break
+				}
+			}
+			if msg, ok := rule.ReasonLocalized[primary]; ok && msg != "" {
+				return msg
+			}
+		}
+		if strings.HasPrefix(rule.ID, "synthetic:") && rule.ReasonCode != "" {
+			if msg, ok := localizedOverride(rule.ReasonCode, loc); ok {
+				return msg
+			}
+		}
+	}
+	if rule.Reason != "" {
+		return rule.Reason
+	}
+	return "Matched rule " + id
 }
 
 // Load replaces the rule set.
@@ -281,12 +343,11 @@ func (e *PolicyEvaluator) evaluateAction(tool, method, semanticAction string, ct
 		if id == "" {
 			id = rule.Name
 		}
-		// User-provided reason wins. Falls back to canned text only if the
-		// rule had no `reason:` field in the source policy.
-		reason := rule.Reason
-		if reason == "" {
-			reason = "Matched rule " + id
-		}
+		// User-provided reason wins, localized when CONTROLZERO_LOCALE selects
+		// a locale the rule (or system pack) has copy for. Falls back to the
+		// plain reason / canned text, so English output is byte-identical to
+		// before (#25, gh#1439).
+		reason := e.resolveReason(rule, id)
 		// Carry forward a rule-level reason_code if one was set
 		// (e.g. the backend's synthetic NO_ACTIVE_POLICIES deny).
 		// Otherwise label the match with the canonical RULE_MATCH.
@@ -309,18 +370,26 @@ func (e *PolicyEvaluator) evaluateAction(tool, method, semanticAction string, ct
 	// fail-closed contract: a corrupt or future-schema bundle MUST
 	// NOT flip an org from deny to allow through a typo.
 	effect := "deny"
-	reason := "No matching policy rule (fail-closed default)"
 	switch e.defaultAction {
 	case "allow":
 		effect = "allow"
-		reason = "No matching policy rule (default_action=allow)"
 	case "warn":
 		effect = "warn"
-		reason = "No matching policy rule (default_action=warn)"
 	case "deny", "":
-		// Explicit or legacy fail-closed. Reason already set above.
+		// Explicit or legacy fail-closed.
 	default:
 		// Unknown value -> fail-closed. Do not silently allow.
+	}
+
+	// #25 (gh#1439): the variant strings live in the in-binary
+	// message pack keyed by NO_RULE_MATCH:<effect>. English values are
+	// byte-identical to the legacy Go strings (so this is a no-op when
+	// CONTROLZERO_LOCALE is unset); with ko set the Korean variant surfaces.
+	// effect is always one of deny/allow/warn here, so the key always
+	// resolves; the literal is a defensive fallback only.
+	reason, ok := systemMessage("NO_RULE_MATCH:"+effect, e.locale)
+	if !ok {
+		reason = "No matching policy rule (fail-closed default)"
 	}
 
 	// T79: distinguish the T83-class signature ("a rule's actions

@@ -119,6 +119,30 @@ rules:
 Rules are evaluated top to bottom. The first match wins. If no rule matches,
 the call is denied (fail-closed).
 
+## Localized block messages (`reason_localized`)
+
+The `reason` is plain UTF-8 text, so it can be written in any language. To
+serve more than one language from one policy, add a `reason_localized` map and
+select a locale with the `CONTROLZERO_LOCALE` environment variable (`ko`,
+`ko-KR`, ...):
+
+```yaml
+version: '1'
+rules:
+  - deny: 'delete_*'
+    reason: 'Deletes need human approval' # English default
+    reason_localized:
+      ko: '삭제는 사람의 승인이 필요합니다'
+  - allow: '*'
+```
+
+When `CONTROLZERO_LOCALE` is unset (or has no entry for the rule) the plain
+`reason` is used, so existing behavior is unchanged. The SDK's built-in
+no-rule-match and empty/observe-bundle messages also ship an English default
+plus a Korean translation via in-binary maps (no runtime i18n dependency --
+air-gap safe). Localization is display-only and never changes the decided
+effect.
+
 ## Local audit log
 
 When running without an API key, every decision is written to `./controlzero.log`.

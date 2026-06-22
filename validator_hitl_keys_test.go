@@ -97,6 +97,7 @@ func TestKnownRuleKeysNoUnexpectedAdditions(t *testing.T) {
 		"conditions":       true,
 		"reason":           true,
 		"reason_code":      true,
+		"reason_localized": true, // #25, gh#1439
 		"escalate_on_deny": true,
 	}
 	if len(knownRuleKeys) != len(expected) {

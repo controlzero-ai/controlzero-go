@@ -60,6 +60,9 @@ var knownRuleKeys = map[string]bool{
 	"conditions":       true,
 	"reason":           true,
 	"reason_code":      true,
+	// Locale-keyed reason overrides (#25, gh#1439). Additive;
+	// absent => plain `reason` stays the default.
+	"reason_localized": true,
 	"escalate_on_deny": true, // HITL tag (additive in v1.7.6; behavior in v1.8.0)
 }
 
@@ -615,16 +618,55 @@ func validateAndTranslate(data map[string]any, sourceLabel string) (ParsedPolicy
 			escalateOnDeny = toBool(v)
 		}
 
+		// Locale-keyed reason overrides (#25, gh#1439). Optional
+		// {locale: message} map. Absent => nil => plain Reason stays the
+		// default for every locale. Validate the SHAPE so a malformed entry
+		// is a clear load error rather than a silent drop.
+		var reasonLocalized map[string]string
+		if rl, ok := ruleMap["reason_localized"]; ok && rl != nil {
+			// Accept both shapes: map[string]string comes from the in-memory
+			// bundle translator (bundle.translateRule), map[string]any from a
+			// JSON/YAML decode. Anything else is a malformed entry.
+			switch rlTyped := rl.(type) {
+			case map[string]string:
+				reasonLocalized = make(map[string]string, len(rlTyped))
+				for locK, locV := range rlTyped {
+					reasonLocalized[strings.ToLower(strings.TrimSpace(locK))] = locV
+				}
+			case map[string]any:
+				reasonLocalized = make(map[string]string, len(rlTyped))
+				badEntry := false
+				for locK, locV := range rlTyped {
+					s, isStr := locV.(string)
+					if !isStr {
+						errs = append(errs, fmt.Sprintf(
+							"rules[%d]: 'reason_localized' values must all be strings", i))
+						badEntry = true
+						break
+					}
+					reasonLocalized[strings.ToLower(strings.TrimSpace(locK))] = s
+				}
+				if badEntry {
+					continue
+				}
+			default:
+				errs = append(errs, fmt.Sprintf(
+					"rules[%d]: 'reason_localized' must be a mapping of {locale: message}", i))
+				continue
+			}
+		}
+
 		out = append(out, PolicyRule{
-			ID:             id,
-			Name:           name,
-			Effect:         effect,
-			Actions:        actions,
-			Resources:      resources,
-			Conditions:     conditions,
-			Reason:         reasonStr,
-			ReasonCode:     reasonCode,
-			EscalateOnDeny: escalateOnDeny,
+			ID:              id,
+			Name:            name,
+			Effect:          effect,
+			Actions:         actions,
+			Resources:       resources,
+			Conditions:      conditions,
+			Reason:          reasonStr,
+			ReasonCode:      reasonCode,
+			EscalateOnDeny:  escalateOnDeny,
+			ReasonLocalized: reasonLocalized,
 		})
 	}
 

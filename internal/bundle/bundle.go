@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -889,6 +890,23 @@ func translateRule(rule map[string]any, policyID string) map[string]any {
 	// also being stripped at the bundle layer. Forward it when present.
 	if escalate, ok := rule["escalate_on_deny"].(bool); ok {
 		out["escalate_on_deny"] = escalate
+	}
+	// #25 (gh#1439): the SAME allowlist-strip trap (gh#175 / #1303
+	// family). A backend-signed bundle copies only an allowlist of rule
+	// fields into the local rule shape; without this a hosted policy's
+	// reason_localized map is silently dropped and a Korean operator sees
+	// only the English fallback. Forward it intact. (The backend bundle wire
+	// struct must ALSO carry the field -- see bundle_handler.go PolicyRule.)
+	if rl, ok := rule["reason_localized"].(map[string]any); ok && len(rl) > 0 {
+		m := make(map[string]string, len(rl))
+		for k, v := range rl {
+			if s, ok := v.(string); ok {
+				m[strings.ToLower(strings.TrimSpace(k))] = s
+			}
+		}
+		if len(m) > 0 {
+			out["reason_localized"] = m
+		}
 	}
 	return out
 }
