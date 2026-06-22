@@ -65,10 +65,20 @@ var canonicalToolsForValidator = map[string]bool{
 	"grep_search":       true,
 	"Glob":              true,
 	"glob":              true,
+	"ListDir":           true,
 	"Task":              true,
 	"Agent":             true,
 	"subagent":          true,
 	"spawn_agent":       true,
+	// #341/#362 Antigravity (run_command / view_file / write_to_file /
+	// replace_file_content) host aliases added in spec_version 2. Kept in
+	// lockstep with the embedded extractor spec; the
+	// TestValidatorCoversSpecAliases guard fails if the spec adds an alias
+	// this map does not recognise.
+	"run_command":          true,
+	"view_file":            true,
+	"write_to_file":        true,
+	"replace_file_content": true,
 }
 
 var databaseToolAliasesForValidator = map[string]bool{
@@ -78,7 +88,7 @@ var databaseToolAliasesForValidator = map[string]bool{
 	"PostgreSQL": true,
 	"MySQL":      true,
 	"postgres":   true,
-	"sqlite":    true,
+	"sqlite":     true,
 }
 
 // knownDatabaseMethodsForValidator is the union of the canonical SQL

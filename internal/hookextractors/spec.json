@@ -1,0 +1,69 @@
+{
+  "spec_version": 2,
+  "description": "Canonical extraction rules for AI coding-agent + LLM-platform clients. Maps host-agent PreToolUse payloads (or equivalent) to canonical (tool, method) action strings the policy engine evaluates against. When the SDK hook receives an event from Claude Code, Gemini CLI, Codex CLI, or any other registered client, it looks up the tool name (resolving aliases), walks args_path, applies the extract function, and emits action=\"{canonical_tool}:{method}\". A single user-authored policy rule (e.g. action: 'Bash') therefore matches the equivalent action from any supported client. CONTRACT: this file is the authoritative spec. The Node SDK ships an identical copy at sdks/node/controlzero/src/internal/toolExtractors.json. The CI parity test (sdks/python/controlzero/tests/test_action_canonicalization.py + Node sibling) asserts byte-identical content. When adding a new client (or a new tool to an existing client), update both files in the same PR. See docs/sdk/policies/canonical-tools.md for the customer-facing tool name table.",
+  "tools": {
+    "database": {
+      "args_path": "sql",
+      "extract": "most_dangerous_sql_keyword",
+      "fallback_method": "*",
+      "aliases": ["sql", "Database", "PostgreSQL", "MySQL", "postgres", "sqlite"]
+    },
+    "Bash": {
+      "args_path": ["command", "CommandLine"],
+      "extract": "most_dangerous_shell_command",
+      "fallback_method": "*",
+      "aliases": [
+        "bash",
+        "shell",
+        "ShellTool",
+        "run_shell_command",
+        "run_command",
+        "PowerShell",
+        "powershell",
+        "Shell"
+      ]
+    },
+    "http": {
+      "args_path": "method",
+      "extract": "identity_upper",
+      "fallback_method": "*",
+      "aliases": ["fetch", "web_fetch", "WebFetch", "HTTPRequest", "request"]
+    },
+    "web_search": {
+      "args_path": null,
+      "extract": "tool_name_as_method",
+      "fallback_method": "search",
+      "aliases": ["WebSearch", "google_web_search", "SearchTool"]
+    },
+    "browser": {
+      "args_path": "action",
+      "extract": "identity",
+      "fallback_method": "*",
+      "aliases": ["playwright", "Puppeteer"]
+    },
+    "file_read": {
+      "args_path": null,
+      "extract": "tool_name_as_method",
+      "fallback_method": "read",
+      "aliases": ["read_file", "Read", "ReadFile", "read_many_files", "view_file"]
+    },
+    "file_write": {
+      "args_path": null,
+      "extract": "tool_name_as_method",
+      "fallback_method": "write",
+      "aliases": ["write_file", "Write", "WriteFile", "edit_file", "Edit", "replace", "apply_patch", "write_to_file", "replace_file_content"]
+    },
+    "file_search": {
+      "args_path": null,
+      "extract": "tool_name_as_method",
+      "fallback_method": "search",
+      "aliases": ["Grep", "grep_search", "Glob", "glob", "ListDir"]
+    },
+    "task": {
+      "args_path": null,
+      "extract": "tool_name_as_method",
+      "fallback_method": "spawn",
+      "aliases": ["Task", "Agent", "subagent", "spawn_agent"]
+    }
+  }
+}

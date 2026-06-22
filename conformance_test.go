@@ -143,15 +143,13 @@ var skipCasesGoGaps = map[string]string{
 	"regression-BUG345-001":         "run_shell_command tool not canonicalized to Bash for matching",
 	"regression-BUG350-001":         "legacy Read rule action does not back-canonicalize to file_read tool",
 	"case-insensitive-method-001":   "SQL method classifier is case-sensitive",
-	// Go-specific gap. Go's PolicyEvaluator.Evaluate signature is
-	// (tool, method, ctx) -- args are NOT plumbed through. So SQL semantic
-	// class extraction from args.sql cannot happen at SDK matching time
-	// (it does happen for hook-check CLI calls that pre-compute
-	// context.action_semantic_class server-side, but not for direct SDK
-	// users). Python + Node SDKs pass this case because they thread args
-	// through to the evaluator. Fix path: change Go Evaluate signature to
-	// take args, mirror Python/Node SQL class extraction.
-	"sql-class-precedence-001": "Go Evaluator does not accept args, so SQL semantic class extraction does not run for direct SDK calls",
+	// sql-class-precedence-001 NO LONGER SKIPPED (#362). The Go SDK now
+	// derives the SQL semantic class from args.sql inside the evaluator
+	// CORE (PolicyEvaluator.EvaluateWithArgs -> deriveSemanticClass),
+	// reached via Guard(), mirroring Python + Node. The case asserts
+	// SELECT 1; DROP TABLE x resolves to database:admin so a
+	// deny:database:admin rule catches the piggyback. This shared parity
+	// vector now RUNS + must stay green (fail-if-reverted).
 	// gh#175 multi-client / per-project rule selectors. Python SDK's
 	// PolicyEvaluator gates `clients=[...]` and `projects=[...]` against
 	// the request's context; Go SDK does not yet honor those fields, so

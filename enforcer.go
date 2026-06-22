@@ -2,6 +2,9 @@ package controlzero
 
 import (
 	"path"
+	"strings"
+
+	"controlzero.ai/sdk/go/internal/hookextractors"
 )
 
 // PolicyRule is the canonical internal representation of a single policy rule.
@@ -101,11 +104,114 @@ type EvalContext struct {
 	Tags       map[string]string
 	ClientName string
 	ProjectID  string
+	// ActionSemanticClass is the #350 portable SQL class
+	// (read|write|admin|exec) precomputed by a caller -- e.g. the
+	// hook-check CLI, which resolves the canonical tool and the class
+	// before reaching the evaluator. When set it takes precedence over
+	// the in-core derivation from args["sql"]. Mirrors the Python +
+	// Node evaluator's context["action_semantic_class"] input.
+	ActionSemanticClass string
 }
 
-// Evaluate returns a PolicyDecision for the given tool/method. Always returns;
-// never panics.
+// Evaluate returns a PolicyDecision for the given tool/method. Always
+// returns; never panics. Back-compat wrapper that routes through the
+// shared core (EvaluateWithArgs) with no args, so the single derivation
+// path is the only path -- callers with a SQL payload should prefer
+// EvaluateWithArgs so the #350 semantic class is derived in the CORE.
 func (e *PolicyEvaluator) Evaluate(tool, method string, ctx *EvalContext) PolicyDecision {
+	return e.EvaluateWithArgs(tool, method, nil, ctx)
+}
+
+// EvaluateWithArgs is the #362 P1-1 shared evaluator CORE path: it accepts
+// the raw tool args and derives the #350 SQL semantic class INSIDE the
+// evaluator, byte-identical to the Python + Node enforcers
+// (PolicyEvaluator.evaluate(tool, method, context, args)). Two sources for
+// the class action, in priority order:
+//
+//  1. ctx.ActionSemanticClass (a caller -- e.g. the hook-check CLI -- that
+//     already resolved the canonical tool + class), then
+//  2. derive on the fly from args["sql"] when the tool is exactly
+//     "database" and the arg is a non-empty SQL string.
+//
+// This matches Python/Node EXACTLY: the literal "database" tool is the
+// trigger (the SDK guard() path does NOT alias-resolve here -- alias
+// resolution is the hook-check CLI's job, which then feeds
+// ActionSemanticClass). The derived class is surfaced onto the returned
+// decision.SemanticClass so the audit row is identical regardless of which
+// entry point the caller used, and a rule that matches EITHER the
+// per-keyword action (database:DROP) OR the class action (database:admin)
+// fires. Always returns; never panics.
+func (e *PolicyEvaluator) EvaluateWithArgs(tool, method string, args map[string]any, ctx *EvalContext) PolicyDecision {
+	semanticClass, semanticAction := e.deriveSemanticClass(tool, args, ctx)
+	decision := e.evaluateAction(tool, method, semanticAction, ctx)
+	decision.SemanticClass = semanticClass
+	return decision
+}
+
+// deriveSemanticClass computes the #350 portable SQL class and the
+// corresponding class-action string for a call, mirroring the
+// Python/Node evaluator derivation exactly. Returns ("", "") for non-SQL
+// calls. semanticAction is "tool:class" (only when distinct from the
+// per-keyword action). Kept in the CORE so every entry point -- Evaluate,
+// EvaluateWithArgs, EvaluateWithSemanticClass -- shares one derivation.
+func (e *PolicyEvaluator) deriveSemanticClass(tool string, args map[string]any, ctx *EvalContext) (semanticClass, semanticAction string) {
+	// Priority 1: a caller-precomputed class action (hook-check CLI).
+	if ctx != nil && ctx.ActionSemanticClass != "" {
+		semanticAction = ctx.ActionSemanticClass
+		// Recover the bare class (everything after the last ':') so the
+		// audit row's decision.SemanticClass matches Python/Node.
+		if idx := strings.LastIndex(semanticAction, ":"); idx >= 0 && idx+1 < len(semanticAction) {
+			semanticClass = semanticAction[idx+1:]
+		} else {
+			semanticClass = semanticAction
+		}
+		return semanticClass, semanticAction
+	}
+	// Priority 2: derive from args["sql"] for the literal "database" tool,
+	// byte-identical to Python (`tool == "database" and args`) and Node
+	// (`tool === 'database' && typeof args.sql === 'string'`).
+	if tool != "database" || args == nil {
+		return "", ""
+	}
+	sqlVal, ok := args["sql"]
+	if !ok {
+		return "", ""
+	}
+	sqlText, ok := sqlVal.(string)
+	if !ok || sqlText == "" {
+		return "", ""
+	}
+	cls := hookextractors.SQLSemanticClass(sqlText)
+	if cls == "" {
+		return "", ""
+	}
+	return cls, tool + ":" + cls
+}
+
+// EvaluateWithSemanticClass is Evaluate plus the #350 SQL semantic-class
+// layer with a caller-precomputed class action. semanticAction is the
+// portable parallel action a database call resolves to
+// (database:read|write|admin|exec); pass "" for non-SQL calls. When
+// non-empty, a rule that matches EITHER the per-keyword action
+// (database:DROP) OR the semantic-class action (database:admin) fires.
+//
+// Retained for back-compat; prefer EvaluateWithArgs, which derives the
+// class in the CORE from the raw args so no caller has to precompute it.
+// Mirrors the Python + Node evaluator change shipped in #350.
+func (e *PolicyEvaluator) EvaluateWithSemanticClass(tool, method, semanticAction string, ctx *EvalContext) PolicyDecision {
+	decision := e.evaluateAction(tool, method, semanticAction, ctx)
+	// Surface the bare class onto the decision so the audit shape matches
+	// the EvaluateWithArgs path even when the caller precomputed the
+	// action. (database:read -> "read")
+	if semanticAction != "" {
+		if idx := strings.LastIndex(semanticAction, ":"); idx >= 0 && idx+1 < len(semanticAction) {
+			decision.SemanticClass = semanticAction[idx+1:]
+		}
+	}
+	return decision
+}
+
+func (e *PolicyEvaluator) evaluateAction(tool, method, semanticAction string, ctx *EvalContext) PolicyDecision {
 	if method == "" {
 		method = "*"
 	}
@@ -121,7 +227,16 @@ func (e *PolicyEvaluator) Evaluate(tool, method string, ctx *EvalContext) Policy
 	// ...) keep matching modern SDK calls that emit canonical
 	// semantic classes (database:read|write|admin|exec), and vice
 	// versa. NO BREAKING CHANGES contract -- see #389.
-	candidateActions := ExpandCandidateActions([]string{action})
+	seedActions := []string{action}
+	// #350 semantic-class layer: the portable database:<class> action is
+	// matched alongside the per-keyword action. Expanded through the same
+	// alias table so a rule written either way still fires. The
+	// per-keyword action stays FIRST so it takes precedence in the
+	// candidate ordering.
+	if semanticAction != "" && semanticAction != action {
+		seedActions = append(seedActions, semanticAction)
+	}
+	candidateActions := ExpandCandidateActions(seedActions)
 
 	evaluated := 0
 	// T79: track the T83-class signature so the no-match path can be

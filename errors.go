@@ -61,6 +61,13 @@ type PolicyDecision struct {
 	// approval_action attribute on the Python and Node LLM decision
 	// envelopes.
 	ApprovalAction *string
+
+	// SemanticClass is the #350 portable SQL semantic class
+	// (read|write|admin|exec) the call resolved to, or "" for non-SQL
+	// calls. Surfaced onto the audit row as action_semantic_class so a
+	// dashboard can filter on the dialect-independent class. Mirrors
+	// decision.semantic_class on the Python + Node decision envelopes.
+	SemanticClass string
 }
 
 // PolicyEngineVersion is the version of the policy engine the SDK is

@@ -422,6 +422,16 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 		return c.noopDecision(), nil
 	}
 
+	// #350 SQL semantic-class layer (Go-SDK port, #362 P1-1): the portable
+	// canonical class (read|write|admin|exec) is now derived INSIDE the
+	// shared evaluator CORE (EvaluateWithArgs -> deriveSemanticClass),
+	// byte-identical to the Python + Node enforcers. The surface no longer
+	// precomputes the class -- it just hands the raw tool + args to the
+	// core, which derives `database:<class>` from args["sql"] for the
+	// literal "database" tool and matches it ALONGSIDE the per-keyword
+	// action (existing `database:DROP` rules keep firing). This removes the
+	// per-surface divergence the old client-side derivation introduced and
+	// makes the direct PolicyEvaluator.Evaluate* API self-sufficient.
 	var decision PolicyDecision
 	func() {
 		defer func() {
@@ -439,8 +449,12 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 				}
 			}
 		}()
-		decision = c.evaluator.Evaluate(tool, method, evalContext)
+		decision = c.evaluator.EvaluateWithArgs(tool, method, opts.Args, evalContext)
 	}()
+	// decision.SemanticClass is set by the core (EvaluateWithArgs) so the
+	// audit row carries the same action_semantic_class on every entry
+	// point -- parity with decision.semantic_class on the Python + Node
+	// envelopes.
 
 	// DLP scanning: if the policy allowed the call, scan tool args for
 	// sensitive data. If any DLP rule with action="block" matches, override
@@ -484,6 +498,16 @@ func (c *Client) buildEvalContext(caller *EvalContext) *EvalContext {
 		out.Tags = caller.Tags
 		out.ClientName = caller.ClientName
 		out.ProjectID = caller.ProjectID
+		// #362 P1-1: carry the caller-precomputed SQL semantic class
+		// through to the evaluator. Python (dict(context)) and Node
+		// ({...callerContext}) spread the WHOLE caller context dict, so
+		// action_semantic_class reaches their evaluator automatically;
+		// the Go struct copies fields explicitly, so it must copy this
+		// one too. Without it the EvaluateWithArgs / deriveSemanticClass
+		// precedence path (ActionSemanticClass wins over the args-derived
+		// class) is unreachable through the public Guard surface -- the
+		// hook-check layer's resolved class would be silently dropped.
+		out.ActionSemanticClass = caller.ActionSemanticClass
 	}
 	if out.ClientName == "" {
 		out.ClientName = detectClientName()
@@ -692,6 +716,15 @@ func (c *Client) auditDecision(tool, method string, args map[string]any, decisio
 		"client_name":  clientNameValue,
 		"project_id":   projectIDValue,
 		"gate_matched": gateMatchedValue,
+	}
+
+	// #350 / #362: portable SQL semantic class on the audit row. Only
+	// emitted for database calls that resolved to a class so non-SQL
+	// rows keep the pre-#350 shape (empty/omitted). Mirrors the
+	// action_semantic_class column the Python + Node CLI hook-check
+	// stamps. Column name matches the cross-SDK audit contract.
+	if decision.SemanticClass != "" {
+		entry["action_semantic_class"] = ResolveCanonicalTool(tool) + ":" + decision.SemanticClass
 	}
 
 	if c.audit != nil {

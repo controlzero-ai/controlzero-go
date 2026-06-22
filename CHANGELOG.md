@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+### Fixed
+
+- **SQL semantic-class derivation moved into the shared evaluator CORE
+  (GitHub #362 P1-1).** The `database:read|write|admin|exec` class was
+  being derived on the SURFACE (`Client.Guard`), so the exported
+  `PolicyEvaluator.Evaluate` could never produce it and
+  `EvaluateWithSemanticClass` forced every caller to precompute the
+  class -- a per-surface divergence from Python/Node, which derive it
+  inside the evaluator from `args`. New core path
+  `PolicyEvaluator.EvaluateWithArgs(tool, method, args, ctx)` derives the
+  class in the evaluator, byte-identical to the Python/Node enforcers
+  (literal `database` tool + `args["sql"]`, with a caller-precomputed
+  `EvalContext.ActionSemanticClass` taking precedence). `Evaluate` is now
+  a back-compat wrapper through the same core path;
+  `EvaluateWithSemanticClass` is retained. `Client.Guard` no longer
+  derives the class itself. Verified Go now derives the same class as
+  Python/Node for the shared fixtures.
+- **Shell `$()` command-substitution tokenizer aligned to Python (GitHub
+  #362 P1-2).** `MostDangerousShellCommand` flushed the outer command on
+  `$(` / backtick, so `echo $(date) rm -rf /` was mis-classified as `rm`
+  (the trailing `rm -rf /` tokens are literal arguments to `echo`; rm
+  never runs). The tokenizer is now a two-pass mirror of Python (the
+  source of truth): a command substitution is NOT a statement separator
+  -- the primary/outer command is preserved (`echo`) and the substitution
+  body is analyzed on its own, so a dangerous command HIDDEN INSIDE a
+  substitution (`echo $(rm -rf /)`) is still flagged. The same bug was
+  present in the Node SDK and is fixed there too; new shared
+  `parity-cases.json` fixtures cover `echo $(date) rm -rf /` and related
+  `$()` / backtick cases so the divergence is caught going forward.
+
+### Added
+
+- **Canonical-tool + SQL semantic-class parity with Python/Node (GitHub
+  #362, epic #80).** The Go SDK now ships the cross-CLI tool-extractor
+  spec (`spec_version: 2`, GitHub #341) and the SQL semantic-class layer
+  (GitHub #350) the other two SDKs already had. New public surface in
+  package `controlzero`: `ResolveCanonicalTool`, `ExtractMethod`,
+  `BuildAction`, `SQLSemanticClass`, `MostDangerousSQLKeyword`,
+  `MostDangerousShellCommand`. A host PreToolUse payload (`run_command`,
+  `view_file`, `PostgreSQL`, ...) resolves to the same canonical
+  `{tool}:{method}` action every SDK emits, and a `database:read` /
+  `database:write` / `database:admin` / `database:exec` semantic class is
+  derived alongside the per-keyword action. `Guard()` on a `database`
+  call now matches a portable `database:read` rule (covering SELECT /
+  EXPLAIN / SHOW / CTE / DESCRIBE) AND keeps existing `database:DROP`
+  per-keyword rules firing, and stamps `action_semantic_class` on the
+  audit row (`PolicyDecision.SemanticClass`). The extractor spec is
+  embedded byte-identical (`internal/hookextractors/spec.json`, via
+  `go:embed`) and drift-checked against the canonical fixture by
+  `scripts/ci/check-extractor-spec-drift.sh`. Cross-SDK parity is proven
+  by running the SAME shared fixtures
+  (`tests/fixtures/enforcement-spec/extractors/parity-cases.json`) the
+  Python and Node SDKs run. The unknown-action validator now recognises
+  the spec_version 2 Antigravity aliases (`run_command`, `view_file`,
+  `write_to_file`, `replace_file_content`, `ListDir`).
+
 CLI-only additions. The SDK package `controlzero.Version` (version.go,
 tag-driven) is unchanged; only the `controlzero` CLI binary version
 (cmd/controlzero/main.go) bumps 1.7.1 -> 1.8.0 for the new command.
