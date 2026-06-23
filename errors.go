@@ -48,6 +48,16 @@ type PolicyDecision struct {
 	// surface.
 	GateMatched string
 
+	// MaskedArgs carries the redacted tool arguments when a DLP rule with
+	// action="mask" fired -- Effect stays "allow", but the sensitive spans are
+	// replaced by value-free [REDACTED-<RULE_ID-UPPER>] tokens and the
+	// caller/host MUST forward THESE instead of the raw args. nil when no mask
+	// fired (the common case). Parity with the Python PolicyDecision.masked_args
+	// and Node maskedArgs. Before this field a Go-SDK mask rule was a silent
+	// leak: the match fired but nothing redacted, so the raw secret was
+	// forwarded under an allow.
+	MaskedArgs map[string]interface{}
+
 	// RequiresApproval indicates the policy engine decided this call
 	// needs a human-in-the-loop grant before it can proceed. HITL
 	// Phase 2d (Go-SDK port). Defaults to false (omitempty in any

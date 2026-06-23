@@ -27,6 +27,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,12 @@ type DLPMatch struct {
 	Action      string
 	MatchedText string // plaintext for pii/financial, SHA-256 hash for secret
 	Offset      int
-	Count       int
+	// Length is the span length in the SOURCE text (loc[1]-loc[0]), NOT
+	// len(MatchedText) -- for secret-category matches MatchedText is the
+	// SHA-256 hash, so its length is meaningless for splicing. The masker
+	// only ever uses this scan-time span length.
+	Length int
+	Count  int
 }
 
 // ---------------------------------------------------------------------------
@@ -725,6 +732,7 @@ func (s *DLPScanner) Scan(text string) []DLPMatch {
 				Action:      rule.Action,
 				MatchedText: displayText,
 				Offset:      loc[0],
+				Length:      loc[1] - loc[0],
 				Count:       1,
 			})
 		}
@@ -741,6 +749,136 @@ func HasBlockingMatch(matches []DLPMatch) bool {
 		}
 	}
 	return false
+}
+
+// HasMaskMatch reports whether any match has Action="mask".
+func HasMaskMatch(matches []DLPMatch) bool {
+	for i := range matches {
+		if matches[i].Action == "mask" {
+			return true
+		}
+	}
+	return false
+}
+
+// MaskPlaceholder renders a value-free redaction token for a rule id, byte-
+// identical to the Python/Node SDKs, the Rust gateway (pii.redact_placeholder,
+// standardized #961) and the DLP test panel: "[REDACTED-<RULE_ID-UPPER>]" --
+// derived ONLY from the rule id, never the matched bytes, so it cannot leak any
+// portion of the original sensitive value.
+func MaskPlaceholder(ruleID string) string {
+	base := ruleID
+	if base == "" {
+		base = "PII"
+	}
+	base = strings.ToUpper(strings.ReplaceAll(base, " ", "_"))
+	return "[REDACTED-" + base + "]"
+}
+
+// MaskText redacts every action="mask" span in text with a value-free token,
+// mirroring the Python SDK + gateway response_dlp.mask_text semantics.
+// Overlapping/nested spans are COALESCED before splicing -- a naive right-to-
+// left splice over overlapping spans mutates offsets and silently leaks tail
+// bytes -- then merged intervals are spliced right-to-left so earlier offsets
+// stay valid. Only mask-action matches are spliced; detect/block are left in
+// place (block is a separate deny; detect is observe-only).
+func MaskText(text string, matches []DLPMatch) string {
+	type span struct {
+		start, end int
+		id         string
+	}
+	var ms []span
+	for i := range matches {
+		m := &matches[i]
+		if m.Action == "mask" && m.Length > 0 {
+			ms = append(ms, span{m.Offset, m.Offset + m.Length, m.RuleID})
+		}
+	}
+	if len(ms) == 0 {
+		return text
+	}
+	// Sort by start, then widest span first, so a covering span labels the
+	// merged interval (a nested match never produces a second placeholder).
+	sort.SliceStable(ms, func(i, j int) bool {
+		if ms[i].start != ms[j].start {
+			return ms[i].start < ms[j].start
+		}
+		return ms[i].end > ms[j].end
+	})
+	// Coalesce overlapping/adjacent spans, keeping the first (covering) id.
+	type interval struct {
+		start, end int
+		id         string
+	}
+	var ivals []interval
+	for _, s := range ms {
+		if n := len(ivals); n > 0 && s.start <= ivals[n-1].end {
+			if s.end > ivals[n-1].end {
+				ivals[n-1].end = s.end
+			}
+		} else {
+			ivals = append(ivals, interval{s.start, s.end, s.id})
+		}
+	}
+	// Splice right-to-left so not-yet-applied intervals' offsets stay valid.
+	out := text
+	for i := len(ivals) - 1; i >= 0; i-- {
+		iv := ivals[i]
+		if iv.start < 0 || iv.end > len(out) || iv.start > iv.end {
+			continue
+		}
+		out = out[:iv.start] + MaskPlaceholder(iv.id) + out[iv.end:]
+	}
+	return out
+}
+
+// MaskArgs walks args and masks every action="mask" span in each string leaf,
+// returning a NEW args structure (the original is never mutated) plus the flat
+// list of every match seen. Each string leaf is scanned INDEPENDENTLY so the
+// per-leaf offsets the splicer uses are valid against that exact leaf. Non-
+// string scalar leaves (numbers/bools) are stringified + scanned too: a JSON
+// number like {"card": 4111111111111111} matches a mask rule and would
+// otherwise survive un-redacted (the Korean card/RRN/account-as-number leak);
+// when a mask span fires the masked STRING is returned in its place.
+func (s *DLPScanner) MaskArgs(args interface{}) (interface{}, []DLPMatch) {
+	var all []DLPMatch
+	masked := s.maskRecursive(args, &all)
+	return masked, all
+}
+
+func (s *DLPScanner) maskRecursive(obj interface{}, all *[]DLPMatch) interface{} {
+	switch v := obj.(type) {
+	case string:
+		leaf := s.Scan(v)
+		if len(leaf) > 0 {
+			*all = append(*all, leaf...)
+		}
+		return MaskText(v, leaf)
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			out[k] = s.maskRecursive(val, all)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(v))
+		for i, item := range v {
+			out[i] = s.maskRecursive(item, all)
+		}
+		return out
+	case nil:
+		return nil
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		asText := fmt.Sprintf("%v", v)
+		leaf := s.Scan(asText)
+		if HasMaskMatch(leaf) {
+			*all = append(*all, leaf...)
+			return MaskText(asText, leaf)
+		}
+		return obj
+	default:
+		return obj
+	}
 }
 
 // GetFindingsForAudit converts matches to audit-safe findings.

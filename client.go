@@ -480,6 +480,34 @@ func (c *Client) Guard(tool string, opts GuardOptions) (PolicyDecision, error) {
 					EvaluatedRules:      decision.EvaluatedRules,
 					PolicyEngineVersion: PolicyEngineVersion,
 				}
+			} else if HasMaskMatch(dlpMatches) {
+				// action="mask": modify-and-proceed. Mask each string/scalar
+				// leaf independently and carry the redacted structure on the
+				// decision (Effect stays "allow"). Before this branch a mask
+				// rule fired but nothing redacted -> the raw secret was
+				// forwarded under an allow (a silent leak). Fail CLOSED: if any
+				// mask span survives the per-leaf splice (e.g. a boundary-
+				// spanning span), deny rather than forward an un-redacted value.
+				maskedAny, _ := c.dlpScanner.MaskArgs(opts.Args)
+				maskedArgs, ok := maskedAny.(map[string]interface{})
+				if !ok || HasMaskMatch(c.dlpScanner.Scan(ExtractTextFromArgs(maskedArgs))) {
+					decision = PolicyDecision{
+						Effect:              "deny",
+						PolicyID:            decision.PolicyID,
+						Reason:              "DLP mask could not fully redact tool arguments; failing closed",
+						ReasonCode:          ReasonCodeDLPBlocked,
+						EvaluatedRules:      decision.EvaluatedRules,
+						PolicyEngineVersion: PolicyEngineVersion,
+					}
+				} else {
+					// Carry the redacted args; the call stays allowed (Effect
+					// unchanged). The distinct DLP_MASKED reason_code is added
+					// across all SDKs + the golden catalog together in the
+					// vocab-alignment work (cross-SDK parity); here we keep the
+					// existing allow reason_code and just attach the redacted
+					// args so the host forwards them instead of the raw values.
+					decision.MaskedArgs = maskedArgs
+				}
 			}
 		}
 	}
