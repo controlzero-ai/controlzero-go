@@ -29,6 +29,7 @@ func TestSyntheticPolicyIDConstants_HaveCanonicalPrefix(t *testing.T) {
 		SyntheticPolicyIDResGateSkip,
 		SyntheticPolicyIDQuarantine,
 		SyntheticPolicyIDEngineUnavail,
+		SyntheticPolicyIDUnattributedDeny,
 	}
 	for _, c := range cases {
 		if !strings.HasPrefix(c, SyntheticPolicyIDPrefix) {
@@ -48,6 +49,7 @@ func TestSyntheticPolicyIDConstants_ExactValues(t *testing.T) {
 		"resource_gate_skip": "synthetic:RESOURCE_GATE_SKIP",
 		"quarantine":         "synthetic:QUARANTINE",
 		"engine_unavail":     "synthetic:ENGINE_UNAVAILABLE",
+		"unattributed_deny":  "synthetic:UNATTRIBUTED_DENY",
 	}
 	got := map[string]string{
 		"prefix":             SyntheticPolicyIDPrefix,
@@ -58,6 +60,7 @@ func TestSyntheticPolicyIDConstants_ExactValues(t *testing.T) {
 		"resource_gate_skip": SyntheticPolicyIDResGateSkip,
 		"quarantine":         SyntheticPolicyIDQuarantine,
 		"engine_unavail":     SyntheticPolicyIDEngineUnavail,
+		"unattributed_deny":  SyntheticPolicyIDUnattributedDeny,
 	}
 	for k, v := range want {
 		if got[k] != v {
@@ -66,11 +69,12 @@ func TestSyntheticPolicyIDConstants_ExactValues(t *testing.T) {
 	}
 }
 
-func TestSyntheticPolicyIDs_SetHasExactlySevenMembers(t *testing.T) {
-	// Bumped from six to seven when synthetic:OBSERVE_MODE_NO_POLICY was
-	// added for the #1247 genuinely-empty observe posture.
-	if len(ValidSyntheticPolicyIDs) != 7 {
-		t.Errorf("ValidSyntheticPolicyIDs size = %d, want 7", len(ValidSyntheticPolicyIDs))
+func TestSyntheticPolicyIDs_SetHasExactlyEightMembers(t *testing.T) {
+	// Bumped to eight when synthetic:UNATTRIBUTED_DENY was added (#1472):
+	// the backend stamps it on a deny with an empty policy_id; SDKs
+	// recognize it for cross-surface lockstep.
+	if len(ValidSyntheticPolicyIDs) != 8 {
+		t.Errorf("ValidSyntheticPolicyIDs size = %d, want 8", len(ValidSyntheticPolicyIDs))
 	}
 	for k := range ValidSyntheticPolicyIDs {
 		if !strings.HasPrefix(k, SyntheticPolicyIDPrefix) {

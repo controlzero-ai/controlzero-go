@@ -153,17 +153,21 @@ const (
 	SyntheticPolicyIDResGateSkip   = "synthetic:RESOURCE_GATE_SKIP"
 	SyntheticPolicyIDQuarantine    = "synthetic:QUARANTINE"
 	SyntheticPolicyIDEngineUnavail = "synthetic:ENGINE_UNAVAILABLE"
+	// SyntheticPolicyIDUnattributedDeny is backend-stamped on a deny that
+	// arrived with an empty policy_id; recognized here for lockstep.
+	SyntheticPolicyIDUnattributedDeny = "synthetic:UNATTRIBUTED_DENY"
 )
 
 // ValidSyntheticPolicyIDs is the full set, exposed for tests and
 // for downstream consumers that want to recognize a synthetic deny
 // without string-prefix matching.
 var ValidSyntheticPolicyIDs = map[string]bool{
-	SyntheticPolicyIDNoRuleMatch:   true,
-	SyntheticPolicyIDNoActive:      true,
-	SyntheticPolicyIDObserveNoPol:  true,
-	SyntheticPolicyIDBundleMiss:    true,
-	SyntheticPolicyIDResGateSkip:   true,
-	SyntheticPolicyIDQuarantine:    true,
-	SyntheticPolicyIDEngineUnavail: true,
+	SyntheticPolicyIDNoRuleMatch:      true,
+	SyntheticPolicyIDNoActive:         true,
+	SyntheticPolicyIDObserveNoPol:     true,
+	SyntheticPolicyIDBundleMiss:       true,
+	SyntheticPolicyIDResGateSkip:      true,
+	SyntheticPolicyIDQuarantine:       true,
+	SyntheticPolicyIDEngineUnavail:    true,
+	SyntheticPolicyIDUnattributedDeny: true,
 }
