@@ -282,6 +282,14 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 		// every decision. Empty -> backend's column DEFAULT ('hosted')
 		// wins, matching the legacy pre-048 behaviour.
 		"policy_source": strOrEmpty(entry["policy_source"]),
+		// PR2 (TIER-0 audit attribution): project_id forwarded
+		// UNCONDITIONALLY as a top-level wire field (previously only inside
+		// the event_kind credential-leak branch below). The client sets it
+		// from the bundle-authoritative bootstrap (keys.project_id) so
+		// api-key denies attribute to the correct project. It lives in the
+		// entry body (signed by the enrolled remote sink), never a header.
+		// Empty -> backend batch default (old SDKs unaffected).
+		"project_id": strOrEmpty(entry["project_id"]),
 	}
 
 	// Wire-payload parity with the backend /v1/sdk/audit AuditIngestEntry
@@ -358,6 +366,9 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 	if kind, ok := entry["event_kind"]; ok {
 		if kindStr, ok := kind.(string); ok && kindStr != "" {
 			wire["event_kind"] = kindStr
+			// NOTE: project_id is NO LONGER forwarded here -- it is now a
+			// top-level always-present wire field (set above), forwarded for
+			// every entry, not just credential-leak events.
 			for _, key := range []string{
 				"pattern_id",
 				"severity",
@@ -366,7 +377,6 @@ func (s *BearerAuditSink) toWireFormat(entry map[string]any) map[string]any {
 				"source",
 				"tool_call_id",
 				"agent_name",
-				"project_id",
 				"enforcement_action",
 				"enforcement_downgraded",
 			} {

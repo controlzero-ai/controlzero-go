@@ -235,6 +235,16 @@ func NewWithContext(ctx context.Context, opts ...Option) (*Client, error) {
 				hostedProjectIDValue = pid
 			}
 		}
+		// PR2 (TIER-0 audit attribution): prefer the bundle-authoritative
+		// project_id from the bootstrap keys (the project the API key
+		// authenticated to) over the bundle payload's value. loadHostedPolicy
+		// already cached the bootstrap via getOrFetchBootstrap, so this is a
+		// synchronous cache read (no network). This is what every api-key
+		// audit row must attribute to. Best-effort: a miss leaves the bundle
+		// payload value in place.
+		if k := loadCachedBootstrap(apiKey); k != nil && k.ProjectID != "" {
+			hostedProjectIDValue = k.ProjectID
+		}
 		notifyActiveSource("hosted", apiKeyPrefix(apiKey))
 	} else {
 		// No api_key OR local-override escape hatch.
